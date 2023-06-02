@@ -48,6 +48,11 @@ func handleUserPrompt(w http.ResponseWriter, r *http.Request) {
 	// Query ChatGPT
 	response := queryChatGPT(requestData.Prompt)
 	fmt.Println("ChatGPT response:", response)
+	// If response is empty, return an error
+	if response == "" {
+		http.Error(w, "Error querying ChatGPT, did you export the API key to $OPENAI_API_KEY?", http.StatusInternalServerError)
+		return
+	}
 
 	// Send a response
 	w.Header().Set("Content-Type", "application/json")
@@ -74,7 +79,7 @@ func queryChatGPT(prompt string) string {
 	}
 
 	requestData := Request{
-		Model: "gpt-4",
+		Model: "gpt-3.5-turbo",
 		Messages: []Message{
 			{
 				Role:    "user",
@@ -127,6 +132,9 @@ func queryChatGPT(prompt string) string {
 		return ""
 	}
 
+	// Print response choices amount
+	fmt.Println("Response body:", string(responseBody))
+	fmt.Println("Response choices amount:", len(response.Choices))
 	if len(response.Choices) > 0 {
 		return response.Choices[0].Message.Content
 	}
