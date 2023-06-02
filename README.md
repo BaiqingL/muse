@@ -1,8 +1,28 @@
 # Cross functional calls
 
+## api/checkStatus
+```
+GET /api/checkStatus
+```
+
+## api/create
+```
+POST /api/create
+
+Body:
+{
+  "file": "path/to/new-file.txt",
+  "contents": "..."
+}
+```
 ## api/delete
 ```
-GET /api/delete?file=path/to/file.txt
+POST /api/delete
+
+Body:
+{
+  "files": ["path/to/file1.txt", "path/to/file2.txt", "path/to/file3.txt"]
+}
 ```
 ## api/patch
 ```
@@ -20,17 +40,6 @@ Body:
       "diff": "..."
     }
   ]
-}
-```
-
-## api/create
-```
-POST /api/create
-
-Body:
-{
-  "file": "path/to/new-file.txt",
-  "contents": "..."
 }
 ```
 
