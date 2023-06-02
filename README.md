@@ -40,7 +40,7 @@ POST /api/install
 
 Body:
 {
-  "package": "package-name"
+  "package": ["package1", "package2", "package3"]
 }
 ```
 
