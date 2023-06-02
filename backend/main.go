@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/getlantern/systray"
@@ -15,17 +16,31 @@ import (
 )
 
 var OPENAI_API_KEY string
+var tempDir string
 
 func main() {
 	err := readAPIKey()
 	if err != nil {
 		log.Fatal(err)
+		os.Exit(1)
 	}
+
+	tempDir, err := ioutil.TempDir("", "example")
+	if err != nil {
+		fmt.Println("Error creating temporary directory:", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Temporary directory:", tempDir)
 	// Start the RESTful server
 	go startServer()
 
 	// Run the systray
 	systray.Run(onReady, onExit)
+}
+
+func coldStartPrompt(framework, useCase string) string {
+	return fmt.Sprintf("Use Typescript and vite.js with %s framework to create a %s.\nAssume that Node.js, npm, vite.js are all downloaded already.\nONLY output the list of filepaths required to create %s, with \"\\n\" as a delimiter.", framework, useCase, useCase)
 }
 
 func readAPIKey() error {
@@ -104,7 +119,7 @@ func queryChatGPT(prompt string) string {
 	}
 
 	requestData := Request{
-		Model: "gpt-3.5-turbo",
+		Model: "gpt-4",
 		Messages: []Message{
 			{
 				Role:    "user",
@@ -168,6 +183,12 @@ func queryChatGPT(prompt string) string {
 }
 
 func onExit() {
+	err := os.RemoveAll(tempDir)
+	if err != nil {
+		fmt.Println("Error removing temporary directory:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Removed temporary directory:", tempDir)
 	fmt.Println("Finished!")
 }
 
