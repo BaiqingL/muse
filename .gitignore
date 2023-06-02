@@ -17,5 +17,5 @@
 # Go workspace file
 go.work
 
-apiKey.env
+backend/apiKey.env
 backend/backend
