@@ -5,17 +5,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
-	"os"
+	"strings"
 
 	"github.com/getlantern/systray"
 	"github.com/getlantern/systray/example/icon"
 	"github.com/gorilla/mux"
 )
 
-func main() {
-	fmt.Println("Starting app.")
+var OPENAI_API_KEY string
 
+func main() {
+	err := readAPIKey()
+	if err != nil {
+		log.Fatal(err)
+	}
 	// Start the RESTful server
 	go startServer()
 
@@ -23,11 +28,31 @@ func main() {
 	systray.Run(onReady, onExit)
 }
 
+func readAPIKey() error {
+	filePath := "apiKey.env"
+
+	// Read the content of the file
+	content, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %v", filePath, err)
+	}
+
+	// Extract the API key from the content
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "OPENAI_API_KEY=") {
+			OPENAI_API_KEY = strings.TrimPrefix(line, "OPENAI_API_KEY=")
+			return nil
+		}
+	}
+
+	return fmt.Errorf("API key not found in %s", filePath)
+}
+
 func startServer() {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/userPrompt", handleUserPrompt).Methods("POST")
 
-	fmt.Println("Starting RESTful server on port 8080...")
 	err := http.ListenAndServe(":8080", r)
 	if err != nil {
 		fmt.Println("Error starting the server:", err)
@@ -103,7 +128,7 @@ func queryChatGPT(prompt string) string {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+os.Getenv("OPENAI_API_KEY"))
+	req.Header.Set("Authorization", "Bearer "+OPENAI_API_KEY)
 
 	resp, err := client.Do(req)
 	if err != nil {
