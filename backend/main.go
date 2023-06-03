@@ -2624,12 +2624,123 @@ func readAPIKey() error {
 func startServer() {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/coldStart", coldStartHandler).Methods("POST")
-	r.HandleFunc("/api/getFile", getFileHandler).Methods("GET") // new route for file download
+	r.HandleFunc("/api/getFile", getFileHandler).Methods("GET")
+	r.HandleFunc("/api/writeFile", writeFileHandler).Methods("POST")
 	r.HandleFunc("/api/export", exportHandler).Methods("GET")
 	err := http.ListenAndServe(":8080", r)
 	if err != nil {
 		fmt.Println("Error starting the server:", err)
 	}
+}
+
+func coldStartHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Received cold start request")
+	var requestData struct {
+		Framework string `json:"framework"`
+		UseCase   string `json:"useCase"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&requestData)
+	if err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	coldStartCodeRequest := coldStartPrompt(requestData.Framework, requestData.UseCase)
+	codeChanges := singleQueryLLM(coldStartCodeRequest)
+	// If response is empty, return an error
+	if codeChanges == "" {
+		http.Error(w, "Error querying OpenAI, did you export the API key to $OPENAI_API_KEY?", http.StatusInternalServerError)
+		return
+	}
+
+	packages := parsePackages(codeChanges)
+
+	code := parseCode(codeChanges)
+	installDependencies(packages)
+
+	for _, file := range code {
+		fmt.Printf("Filename: %s\n", file.Filename)
+		writeFile(file)
+	}
+
+	// Respond with success
+	w.WriteHeader(http.StatusOK)
+}
+
+func getFileHandler(w http.ResponseWriter, r *http.Request) {
+	// Response should contain two fields, boolean exist and string content
+	type Response struct {
+		Exist   bool   `json:"exist"`
+		Content string `json:"content"`
+	}
+
+	// Parse the filename from the query string
+	query := r.URL.Query()
+	filename := query.Get("filename")
+	// Read the file using getFile
+	file := getFile(filename)
+	// If the file is empty, set exist to false
+	if file == "" {
+		json.NewEncoder(w).Encode(Response{Exist: false, Content: ""})
+		return
+	}
+
+	// Otherwise, set exist to true and content to the file content
+	json.NewEncoder(w).Encode(Response{Exist: true, Content: file})
+	return
+}
+
+func writeFileHandler(w http.ResponseWriter, r *http.Request) {
+	// Response should contain one field, boolean success
+	type Response struct {
+		Success bool `json:"success"`
+	}
+
+	// Parse the request body
+	var requestData struct {
+		Filename string `json:"filename"`
+		Content  string `json:"content"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&requestData)
+	if err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	// Write the file using writeFile
+	err = writeFile(File{Filename: requestData.Filename, Code: requestData.Content})
+	if err != nil {
+		http.Error(w, "Error writing file", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with success
+	json.NewEncoder(w).Encode(Response{Success: true})
+	return
+}
+
+func exportHandler(w http.ResponseWriter, r *http.Request) {
+	// Zip the tempdir, and send it as a response
+	zipName := "export.zip"
+	err := zipFiles(tempDir, zipName)
+	if err != nil {
+		http.Error(w, "Error zipping files", http.StatusInternalServerError)
+		return
+	}
+
+	// Read the zip file
+	zipFile, err := ioutil.ReadFile(zipName)
+	if err != nil {
+		http.Error(w, "Error reading zip file", http.StatusInternalServerError)
+		return
+	}
+
+	// Send the zip file as a response
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", "attachment; filename="+zipName)
+	w.Write(zipFile)
 }
 
 func parsePackages(input string) []string {
@@ -2755,86 +2866,6 @@ func zipFiles(source, target string) error {
 	})
 
 	return err
-}
-
-func exportHandler(w http.ResponseWriter, r *http.Request) {
-	// Zip the tempdir, and send it as a response
-	zipName := "export.zip"
-	err := zipFiles(tempDir, zipName)
-	if err != nil {
-		http.Error(w, "Error zipping files", http.StatusInternalServerError)
-		return
-	}
-
-	// Read the zip file
-	zipFile, err := ioutil.ReadFile(zipName)
-	if err != nil {
-		http.Error(w, "Error reading zip file", http.StatusInternalServerError)
-		return
-	}
-
-	// Send the zip file as a response
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", "attachment; filename="+zipName)
-	w.Write(zipFile)
-}
-
-func getFileHandler(w http.ResponseWriter, r *http.Request) {
-	// Response should contain two fields, boolean exist and string content
-	type Response struct {
-		Exist   bool   `json:"exist"`
-		Content string `json:"content"`
-	}
-
-	// Parse the filename from the query string
-	query := r.URL.Query()
-	filename := query.Get("filename")
-	// Read the file using getFile
-	file := getFile(filename)
-	// If the file is empty, set exist to false
-	if file == "" {
-		json.NewEncoder(w).Encode(Response{Exist: false, Content: ""})
-		return
-	}
-
-	// Otherwise, set exist to true and content to the file content
-	json.NewEncoder(w).Encode(Response{Exist: true, Content: file})
-	return
-}
-
-func coldStartHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Received cold start request")
-	var requestData struct {
-		Framework string `json:"framework"`
-		UseCase   string `json:"useCase"`
-	}
-
-	err := json.NewDecoder(r.Body).Decode(&requestData)
-	if err != nil {
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
-		return
-	}
-
-	coldStartCodeRequest := coldStartPrompt(requestData.Framework, requestData.UseCase)
-	codeChanges := singleQueryLLM(coldStartCodeRequest)
-	// If response is empty, return an error
-	if codeChanges == "" {
-		http.Error(w, "Error querying OpenAI, did you export the API key to $OPENAI_API_KEY?", http.StatusInternalServerError)
-		return
-	}
-
-	packages := parsePackages(codeChanges)
-
-	code := parseCode(codeChanges)
-	installDependencies(packages)
-
-	for _, file := range code {
-		fmt.Printf("Filename: %s\n", file.Filename)
-		writeFile(file)
-	}
-
-	// Respond with success
-	w.WriteHeader(http.StatusOK)
 }
 
 func encodeFilesToPrompt(filePath string) string {
