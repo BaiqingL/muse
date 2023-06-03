@@ -72,6 +72,9 @@ const Popup = () => {
       <Heading size="md" alignSelf="center">
         Create your new dream app
       </Heading>
+      <Text color="gray">
+        Start with an idea, and we'll generate a prototype
+      </Text>
       <Textarea
         placeholder={SELECTED_SAMPLE}
         value={prompt}
@@ -82,6 +85,7 @@ const Popup = () => {
         onChange={(e) =>
           setFramework(UI_FRAMEWORKS.find((f) => f.id === e.target.value))
         }
+        defaultValue={UI_FRAMEWORKS[0].id}
       >
         {UI_FRAMEWORKS.map((framework) => (
           <option key={framework.id} value={framework.id}>
@@ -90,9 +94,6 @@ const Popup = () => {
         ))}
       </Select>
       <Button onClick={handleCreate}>Create</Button>
-      <Text>
-        {prompt} {framework?.name}
-      </Text>
     </Stack>
   );
 };
