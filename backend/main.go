@@ -82,17 +82,21 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Query Codex
-	response := queryLLM(coldStartPrompt(requestData.Framework, requestData.UseCase))
+	coldStartPromptRequest := coldStartPrompt(requestData.Framework, requestData.UseCase)
+	filePathsResponse := singleQueryLLM(coldStartPromptRequest)
 	// If response is empty, return an error
-	if response == "" {
+	if filePathsResponse == "" {
 		http.Error(w, "Error querying LLM, did you export the API key to $OPENAI_API_KEY?", http.StatusInternalServerError)
 		return
 	}
 
-	filePaths := strings.Split(response, "\n")
+	filePaths := strings.Split(filePathsResponse, "\n")
 	createFiles(filePaths)
-	// Send a response
+	codeGenPrompt := "Write the code for each file outputted in the chat history in sequential order.\nEach file's code should be formatted as \"###FILENAME:\nfilename\n###CODE:\ncode\"\nOnly output filepath and raw code for each file followed by the line breaks and delimiter."
+	llmHistory := []string{coldStartPromptRequest, filePathsResponse, codeGenPrompt}
+	combinedCodeResponse := multiQueryLLM(llmHistory)
+	codeResponse := combinedCodeResponse[len(combinedCodeResponse)-1]
+	writeFiles(codeResponse)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK) // Set the HTTP status code to 200
 	json.NewEncoder(w).Encode(struct {
@@ -100,8 +104,33 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 		Response string `json:"response"`
 	}{
 		Message:  "Prompt received successfully",
-		Response: response,
+		Response: codeResponse,
 	})
+}
+
+func writeFiles(inputCode string) error {
+	entries := strings.Split(inputCode, "###FILENAME:")
+
+	// Skip the first entry since it's empty
+	entries = entries[1:]
+
+	for _, entry := range entries {
+		parts := strings.SplitN(entry, "###CODE:\n", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid input format: %s", entry)
+		}
+
+		filename := strings.TrimSpace(parts[0])
+		code := strings.TrimSpace(parts[1])
+		// Write the file
+		fullPath := filepath.Join(tempDir, filename)
+		err := ioutil.WriteFile(fullPath, []byte(code), 0644)
+		if err != nil {
+			return fmt.Errorf("error writing file %s: %v", fullPath, err)
+		}
+	}
+
+	return nil
 }
 
 func handleUserPrompt(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +145,7 @@ func handleUserPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Query ChatGPT
-	response := queryLLM(requestData.Prompt)
+	response := singleQueryLLM(requestData.Prompt)
 	// If response is empty, return an error
 	if response == "" {
 		http.Error(w, "Error querying ChatGPT, did you export the API key to $OPENAI_API_KEY?", http.StatusInternalServerError)
@@ -155,7 +184,7 @@ func createFiles(filePaths []string) error {
 	return nil
 }
 
-func queryLLM(prompt string) string {
+func singleQueryLLM(prompt string) string {
 	type Message struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
@@ -175,7 +204,7 @@ func queryLLM(prompt string) string {
 				Content: prompt,
 			},
 		},
-		Temperature: 0.7,
+		Temperature: 0,
 	}
 
 	requestBody, err := json.Marshal(requestData)
@@ -221,14 +250,96 @@ func queryLLM(prompt string) string {
 		return ""
 	}
 
-	// Print response choices amount
-	fmt.Println("Response body:", string(responseBody))
-	fmt.Println("Response choices amount:", len(response.Choices))
 	if len(response.Choices) > 0 {
 		return response.Choices[0].Message.Content
 	}
 
 	return ""
+}
+
+func multiQueryLLM(prompts []string) []string {
+	type Message struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+
+	type Request struct {
+		Model       string    `json:"model"`
+		Messages    []Message `json:"messages"`
+		Temperature float64   `json:"temperature"`
+	}
+
+	requestData := Request{
+		Model:       "gpt-4",
+		Messages:    make([]Message, 0),
+		Temperature: 0,
+	}
+
+	for i, prompt := range prompts {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+
+		requestData.Messages = append(requestData.Messages, Message{
+			Role:    role,
+			Content: prompt,
+		})
+	}
+
+	requestBody, err := json.Marshal(requestData)
+	if err != nil {
+		fmt.Println("Error encoding request body:", err)
+		return nil
+	}
+
+	client := &http.Client{}
+	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(requestBody))
+	if err != nil {
+		fmt.Println("Error creating request:", err)
+		return nil
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+OPENAI_API_KEY)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Println("Error sending request:", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	responseBody, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("Error reading response body:", err)
+		return nil
+	}
+
+	var response struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+
+	err = json.Unmarshal(responseBody, &response)
+	if err != nil {
+		fmt.Println("Error parsing ChatGPT response:", err)
+		return nil
+	}
+
+	// Print response choices amount
+	fmt.Println("Response body:", string(responseBody))
+	fmt.Println("Response choices amount:", len(response.Choices))
+
+	results := make([]string, len(response.Choices))
+	for i, choice := range response.Choices {
+		results[i] = choice.Message.Content
+	}
+
+	return results
 }
 
 func onReady() {
@@ -240,7 +351,6 @@ func onReady() {
 		systray.Quit()
 		fmt.Println("Finished quitting")
 	}()
-	fmt.Println("Started!")
 }
 
 func onExit() {
