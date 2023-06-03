@@ -2751,6 +2751,13 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 	// Respond with success
 	w.WriteHeader(http.StatusOK)
 
+	zipFilePath := tempDir + ".zip"
+	err = zipFiles(tempDir, zipFilePath)
+	if err != nil {
+		log.Println("Error creating zip file:", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 }
 
 func encodeFilesToPrompt(filePath string) string {
