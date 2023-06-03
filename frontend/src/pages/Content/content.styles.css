@@ -1,19 +1,84 @@
-.highlight {
-  outline: 2px solid #96fad8;
+:root {
+  --extension-primary: #930ed2;
+  --extension-primary-light: #c06de7;
+  --extension-primary-dark: #681f8a;
+  --extension-secondary: #0e22d2;
+  --extension-white: #fffcf9;
 }
 
-.loading-overlay {
+@font-face {
+  font-family: 'Manrope';
+  src: url('chrome-extension://__MSG_@@extension_id__/Manrope-VariableFont_wght.ttf')
+    format('truetype');
+  font-weight: 1 100 900;
+  font-style: normal;
+}
+
+.muse-highlight {
+  outline: 1px solid var(--extension-secondary);
+}
+
+.muse-selected {
+  outline: 2px solid var(--extension-primary);
+}
+
+.muse-popup {
+  display: none;
+
   position: absolute;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(255, 255, 255, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 400px;
+  z-index: 9999;
+
+  background: #fff;
+  border: 1px solid var(--extension-white);
+  border-radius: 16px;
+  box-shadow: 0px 5px 10px rgba(0, 0, 0, 0.25);
+
+  font-family: 'Manrope', monospace;
+  font-size: 16px;
+
+  padding: 12px;
+
+  transition: top 0.2s ease-in-out, left 0.2s ease-in-out;
 }
 
-.loading {
-  font-weight: bold;
+.muse-popup > textarea {
+  box-sizing: border-box;
+
+  width: 100%;
+  height: 80px;
+  resize: none;
+  border: none;
+  outline: none;
+  font-family: 'Manrope', monospace;
+  border: 1px solid #aaa;
+  font-size: 16px;
+  padding: 12px;
+  border-radius: 8px;
+
+  margin: 8px 0;
+}
+
+.muse-popup > button {
+  border: none;
+
+  background: var(--extension-primary);
+  color: var(--extension-white);
+  border-radius: 8px;
+  padding: 8px 12px;
+
+  font-family: 'Manrope', monospace;
+  font-size: 16px;
+}
+
+.muse-popup > button:hover {
+  background: var(--extension-primary-dark);
+
+  cursor: pointer;
+}
+
+.muse-popup > p {
+  margin: 0;
 }

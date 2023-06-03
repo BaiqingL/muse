@@ -1,4 +1,15 @@
 var highlightedElement = null; // Keep track of the currently highlighted element
+var selectedElement = null; // Keep track of the currently selected element
+
+var popup = document.createElement('div');
+popup.className = 'muse-popup';
+popup.innerHTML = `
+<p>What should we change?</p>
+<textarea placeholder="Move this button to the top left and make it blue"></textarea>
+<button>Submit</button>
+`;
+
+document.body.appendChild(popup); // Add the popup to the DOM
 
 function highlightElement(event) {
   var x = event.clientX; // Get the X coordinate of the cursor
@@ -6,24 +17,38 @@ function highlightElement(event) {
 
   var element = document.elementFromPoint(x, y); // Get the element at the specified coordinates
 
-  if (highlightedElement !== null) {
-    highlightedElement.classList.remove('highlight'); // Remove the 'highlight' class from the previously highlighted element
+  if (element === popup || popup.contains(element) || element === null) {
+    // If the cursor is over the popup, don't highlight it
+    return;
   }
 
-  element.classList.add('highlight'); // Add the 'highlight' class to the current element
+  if (highlightedElement !== null) {
+    highlightedElement.classList.remove('muse-highlight'); // Remove the 'highlight' class from the previously highlighted element
+  }
+
+  element.classList.add('muse-highlight'); // Add the 'highlight' class to the current element
   highlightedElement = element; // Update the highlighted element
 }
 
-async function replaceWithLoading() {
+async function replaceWithLoading(event) {
+  // If clicked on the popup, don't do anything
+  if (event.target === popup || popup.contains(event.target)) {
+    return;
+  }
+
   if (highlightedElement !== null) {
-    // Set position: relative to the highlighted element
-    highlightedElement.style.position = 'relative';
+    // Move the popup to the cursor position
+    popup.style.left = event.pageX + 'px';
+    popup.style.top = event.pageY + 'px';
 
-    var loadingOverlay = document.createElement('div');
-    loadingOverlay.className = 'loading-overlay';
-    loadingOverlay.innerHTML = '<div class="loading">Loading...</div>';
+    popup.style.display = 'block'; // Show the popup
 
-    highlightedElement.appendChild(loadingOverlay); // Add the loading overlay to the highlighted element
+    if (selectedElement !== null) {
+      selectedElement.classList.remove('muse-selected'); // Remove the 'selected' class from the previously selected element
+    }
+
+    highlightedElement.classList.add('muse-selected'); // Add the 'selected' class to the current element
+    selectedElement = highlightedElement; // Update the selected element
   }
 }
 
