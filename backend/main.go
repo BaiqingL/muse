@@ -36,7 +36,7 @@ func main() {
 }
 
 func coldStartPrompt(framework, useCase string) string {
-	return fmt.Sprintf("Use Typescript, react and vite.js with the %s UI framework to create a %s.\nAssume that Node.js, npm, vite.js are all downloaded already.\nONLY output the list of filepaths required to create %s, with \"\\n\" as a delimiter. Remember, only output the list.", framework, useCase, useCase)
+	return fmt.Sprintf("Use Typescript, react and vite.js with the %s UI framework to create a %s.\nAssume that Node.js, npm, vite.js are all downloaded already.\nONLY output the list of filepaths required to create %s, with \"\\n\" as a delimiter. Remember, only output the list. Use vitejs/plugin-react instead of vitejs/plugin-react-refresh	as that package is deprecated. Remember to generate all the files, such as the App.tsx, main.tsx, index.html and any other files required for a typescript react vite.js project. If there is an API key involved, make a centralized apiKeys.env file with all the keys needed, and use the UI framework where ever you can. Design the UI as if it was for a desktop webapp, and use the UI framework to make the components beautiful.", framework, useCase, useCase)
 }
 
 func readAPIKey() error {
