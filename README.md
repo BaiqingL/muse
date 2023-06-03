@@ -1,12 +1,14 @@
 # Cross functional calls
 
 
-## api/userPrompt
+## api/coldStart
 ```
-POST /api/userPrompt
+POST /api/coldStart
 
 Body:
 {
-  "prompt": "..."
+  "framework": "...",
+  "useCase": "...",
 }
+
 ```

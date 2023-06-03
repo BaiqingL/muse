@@ -139,13 +139,16 @@ func coldStartPrompt(framework, useCase string) string {
 	###CODE:
 	code
 
-	If there is an API key involved, make a centralized .env file with all the keys needed, and read from that file in your new code.
+	If there is an API key involved, make a centralized .env file with all the keys needed, but don't actually use it in the code. Instead, mock the API data in the final code.
+	However, in the main page render some mock components, such as a navbar, a footer, and a sidebar. Make sure the components are beautiful.
 	Use the UI framework whereever fit. Design the UI for a desktop webapp, and use the UI framework to make the components beautiful.
 	package-lock.json is redacted due to its length. Remember, dependency must be listed out first. ONLY output the packages, and then the code.
 	When writing code, make sure the code actually exist, do not hallucinate code if you aren't sure. Make sure the webapp can run with no errors.
-	In the env file, make it clear what API the key is for. In addition, make the home page look good! The base packages provided are just the ones
-	that are installed, you don't have to use all of them if you don't need to. You can also write some mock data for placeholder text. If the user
-	wants ant design, don't import the 'antd/dist/antd.css' file as it will break the app.
+	In the env file, make it clear what API the key is for. In addition, make the home page is decorated with components!
+	The base packages provided are just the ones that are installed, you don't have to use all of them if you don't need to.
+	If you are using ant, do not import 'antd/dist/antd.css' anywhere. Don't import any css file from antd.
+	Consistently add in console.log debugging statements to help the user to debug your code.
+	Only make the home page and nothing else, and make it beautiful. Don't use react-router-dom for the first iteration.
 	Here is the source code: %s`,
 		framework, useCase, encodedFiles)
 }
@@ -275,6 +278,9 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("Filename: %s\n", file.Filename)
 		writeFile(file)
 	}
+
+	// Respond with success
+	w.WriteHeader(http.StatusOK)
 
 }
 
