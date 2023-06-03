@@ -172,12 +172,13 @@ func readAPIKey() error {
 }
 
 func startServer() {
-	r := mux.NewRouter()
-	r.HandleFunc("/api/coldStart", coldStartHandler).Methods("POST")
-	err := http.ListenAndServe(":8080", r)
-	if err != nil {
-		fmt.Println("Error starting the server:", err)
-	}
+    r := mux.NewRouter()
+    r.HandleFunc("/api/coldStart", coldStartHandler).Methods("POST")
+    r.HandleFunc("/api/download/{filename}", downloadFileHandler).Methods("GET") // new route for file download
+    err := http.ListenAndServe(":8080", r)
+    if err != nil {
+        fmt.Println("Error starting the server:", err)
+    }
 }
 
 func parsePackages(input string) []string {
@@ -518,6 +519,18 @@ func onExit() {
 		os.Exit(1)
 	}
 	fmt.Println("Removed temporary directory")
+}
+
+func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    filename := vars["filename"]
+	
+    // Set up the HTTP headers for sending the file
+    w.Header().Set("Content-Disposition", "attachment; filename="+filename)
+    w.Header().Set("Content-Type", "application/octet-stream")
+
+    // Send the file
+    http.ServeFile(w, r, filepath.Join(tempDir, filename))
 }
 
 
