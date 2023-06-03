@@ -282,6 +282,13 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 	// Respond with success
 	w.WriteHeader(http.StatusOK)
 
+	zipFilePath := tempDir + ".zip"
+	err = zipFiles(tempDir, zipFilePath)
+	if err != nil {
+		log.Println("Error creating zip file:", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 }
 
 func encodeFilesToPrompt(filePath string) string {
@@ -539,4 +546,48 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
     http.ServeFile(w, r, filepath.Join(tempDir, filename))
 }
 
+
+
+// func zipFiles(directory, outputFilePath string) error {
+// 	zipFile, err := os.Create(outputFilePath)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer zipFile.Close()
+
+// 	zipWriter := zip.NewWriter(zipFile)
+// 	defer zipWriter.Close()
+
+// 	filepath.Walk(directory, func(filePath string, info os.FileInfo, err error) error {
+// 		if info.IsDir() {
+// 			return nil
+// 		}
+
+// 		if err != nil {
+// 			return err
+// 		}
+
+// 		relPath, err := filepath.Rel(directory, filePath)
+// 		if err != nil {
+// 			return err
+// 		}
+
+// 		zipFile, err := zipWriter.Create(relPath)
+// 		if err != nil {
+// 			return err
+// 		}
+
+// 		fsFile, err := os.Open(filePath)
+// 		if err != nil {
+// 			return err
+// 		}
+// 		defer fsFile.Close()
+
+// 		_, err = io.Copy(zipFile, fsFile)
+
+// 		return err
+// 	})
+
+// 	return nil
+// }
 
