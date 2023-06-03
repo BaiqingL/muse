@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,11 @@ import (
 var OPENAI_API_KEY string
 var tempDir, _ = ioutil.TempDir("", "example")
 var encodedFiles = encodeFilesToPrompt("base")
+
+type File struct {
+	Filename string
+	Code     string
+}
 
 func main() {
 	// First read the API key
@@ -118,7 +124,28 @@ func copyFile(src, dest string) error {
 }
 
 func coldStartPrompt(framework, useCase string) string {
-	return fmt.Sprintf("Given an existing codebase, use the %s UI framework to create a %s.\nWrite the complete code for any files that needs to be changed, which should look like: \"###FILENAME:\nfilename\n###CODE:\ncode\".\n If there is an API key involved, make a centralized .env file with all the keys needed, and read from that file in your new code. Use the UI framework whereever fit. Design the UI for a desktop webapp, and use the UI framework to make the components beautiful. package-lock.json is redacted due to its length. Here is the source code: %s", framework, useCase, encodedFiles)
+	return fmt.Sprintf(`Given an existing codebase, use the %s UI framework to create a %s.
+	First, output the list of all the packages that needs to be installed, such as the frameworks, supporting packages, routers, anything. It should look like:
+	###PACKAGES:
+	package1
+	package2
+
+	Only output top level packages, not subpackages.
+
+	Then, write the complete code for any files that needs to be changed, which should look like:
+
+	###FILENAME:
+	filename
+	###CODE:
+	code
+
+	If there is an API key involved, make a centralized .env file with all the keys needed, and read from that file in your new code.
+	Use the UI framework whereever fit. Design the UI for a desktop webapp, and use the UI framework to make the components beautiful.
+	package-lock.json is redacted due to its length. Remember, dependency must be listed out first. ONLY output the packages, and then the code.
+	When writing code, make sure the code actually exist, do not hallucinate code if you aren't sure. Make sure the webapp can run with no errors.
+	In the env file, make it clear what API the key is for.
+	Here is the source code: %s`,
+		framework, useCase, encodedFiles)
 }
 
 func readAPIKey() error {
@@ -151,7 +178,72 @@ func startServer() {
 	}
 }
 
+func parsePackages(input string) []string {
+	startIndex := strings.Index(input, "###PACKAGES:\n")
+	endIndex := strings.Index(input, "###FILENAME:\n")
+	if startIndex == -1 || endIndex == -1 {
+		return nil
+	}
+
+	packages := strings.Split(input[startIndex+len("###PACKAGES:\n"):endIndex], "\n")
+	return packages
+}
+
+func parseCode(input string) []File {
+	files := []File{}
+
+	for i := 0; i < len(input); {
+		filenameIndex := strings.Index(input[i:], "###FILENAME:\n")
+		if filenameIndex == -1 {
+			break
+		}
+		filenameStart := i + filenameIndex + len("###FILENAME:\n")
+		filenameEnd := strings.Index(input[filenameStart:], "\n")
+		if filenameEnd == -1 {
+			break
+		}
+		filename := input[filenameStart : filenameStart+filenameEnd]
+
+		codeIndex := strings.Index(input[filenameStart+filenameEnd:], "###CODE:\n")
+		if codeIndex == -1 {
+			break
+		}
+		codeStart := filenameStart + filenameEnd + codeIndex + len("###CODE:\n")
+		codeEnd := strings.Index(input[codeStart:], "###FILENAME:\n")
+		if codeEnd == -1 {
+			codeEnd = len(input[codeStart:])
+		}
+
+		code := input[codeStart : codeStart+codeEnd]
+		files = append(files, File{Filename: filename, Code: code})
+
+		i = codeStart + codeEnd
+	}
+
+	return files
+}
+
+func installDependencies(packages []string) error {
+	for _, pkg := range packages {
+		cmd := exec.Command("npm", "install", pkg)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Dir = tempDir
+
+		fmt.Printf("Installing package: %s\n", pkg)
+		err := cmd.Run()
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Package %s installed successfully.\n", pkg)
+	}
+
+	return nil
+}
+
 func coldStartHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Received cold start request")
 	var requestData struct {
 		Framework string `json:"framework"`
 		UseCase   string `json:"useCase"`
@@ -163,20 +255,24 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//coldStartPromptRequest := coldStartPrompt(requestData.Framework, requestData.UseCase)
-	//codeChanges := singleQueryLLM(coldStartPromptRequest)
-	codeChanges := "###FILENAME:\n.env\n###CODE:\nREACT_APP_WEATHER_API_KEY=your_api_key_here\n\n###FILENAME:\nsrc/App.tsx\n###CODE:\nimport React, { useState } from 'react';\nimport { Layout, Input, Button, Card, Typography } from 'antd';\nimport './App.css';\n\nconst { Header, Content } = Layout;\nconst { Title } = Typography;\n\nconst App: React.FC = () => {\n  const [city, setCity] = useState('');\n  const [weatherData, setWeatherData] = useState<any>(null);\n\n  const fetchWeatherData = async () => {\n    const response = await fetch(\n      `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${process.env.REACT_APP_WEATHER_API_KEY}&units=metric`\n    );\n    const data = await response.json();\n    setWeatherData(data);\n  };\n\n  return (\n    <Layout className=\"layout\">\n      <Header>\n        <Title level={2} style={{ color: 'white' }}>\n          Weather App\n        </Title>\n      </Header>\n      <Content className=\"content\">\n        <Input\n          placeholder=\"Enter city name\"\n          value={city}\n          onChange={(e) => setCity(e.target.value)}\n          onPressEnter={fetchWeatherData}\n        />\n        <Button type=\"primary\" onClick={fetchWeatherData}>\n          Search\n        </Button>\n        {weatherData && (\n          <Card title={weatherData.name} className=\"weather-card\">\n            <p>Temperature: {weatherData.main.temp}°C</p>\n            <p>Feels like: {weatherData.main.feels_like}°C</p>\n            <p>Humidity: {weatherData.main.humidity}%</p>\n            <p>Wind speed: {weatherData.wind.speed} m/s</p>\n          </Card>\n        )}\n      </Content>\n    </Layout>\n  );\n};\n\nexport default App;\n\n###FILENAME:\nsrc/App.css\n###CODE:\n.layout {\n  height: 100vh;\n}\n\n.content {\n  padding: 50px;\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  justify-content: center;\n}\n\n.weather-card {\n  margin-top: 20px;\n  width: 300px;\n}"
+	coldStartCodeRequest := coldStartPrompt(requestData.Framework, requestData.UseCase)
+	codeChanges := singleQueryLLM(coldStartCodeRequest)
 	// If response is empty, return an error
 	if codeChanges == "" {
-		http.Error(w, "Error querying LLM, did you export the API key to $OPENAI_API_KEY?", http.StatusInternalServerError)
+		http.Error(w, "Error querying OpenAI, did you export the API key to $OPENAI_API_KEY?", http.StatusInternalServerError)
 		return
 	}
 
-	newChanges := decodeFilesFromResponse(codeChanges)
+	packages := parsePackages(codeChanges)
 
-	for _, change := range newChanges {
-		writeFiles(change)
+	code := parseCode(codeChanges)
+	installDependencies(packages)
+
+	for _, file := range code {
+		fmt.Printf("Filename: %s\n", file.Filename)
+		writeFile(file)
 	}
+
 }
 
 func encodeFilesToPrompt(filePath string) string {
@@ -216,60 +312,28 @@ func encodeFilesToPrompt(filePath string) string {
 	return resultString
 }
 
-func decodeFilesFromResponse(encodedFiles string) [][]string {
-	// Define the regular expression pattern to match the filename and code portions
-	filenamePattern := "###FILENAME:\n"
-	codePattern := "###CODE:\n"
-
-	fileCodeCombined := strings.Split(encodedFiles, filenamePattern)
-
-	var result [][]string
-	for _, fileCode := range fileCodeCombined {
-
-		fileCodeSplit := strings.Split(fileCode, codePattern)
-		if len(fileCodeSplit) != 2 {
-			fmt.Println("Length of array is:", len(fileCodeSplit))
-			fmt.Println(fileCodeSplit)
-			continue
-		} else {
-			// Trim the trailing newline character and spaces
-			fileCodeSplit[0] = strings.TrimSpace(fileCodeSplit[0])
-			fileCodeSplit[1] = strings.TrimSpace(fileCodeSplit[1])
+func writeFile(inputCode File) error {
+	// Check if tempDir + inputCode.Filename's dir exists
+	dir := filepath.Dir(inputCode.Filename)
+	fullDir := filepath.Join(tempDir, dir)
+	// Check if the directory exists
+	if _, err := os.Stat(fullDir); os.IsNotExist(err) {
+		// Create the directory
+		fmt.Println("Creating directory:", fullDir)
+		err = os.MkdirAll(fullDir, 0755)
+		if err != nil {
+			return fmt.Errorf("error creating directory %s: %v", fullDir, err)
 		}
-		// Append the array to the result
-		result = append(result, fileCodeSplit)
+	} else {
+		fmt.Println("Directory already exists:", fullDir)
 	}
-	return result
-}
 
-func writeFiles(inputCode []string) error {
-	filename := strings.TrimSpace(inputCode[0])
-	code := strings.TrimSpace(inputCode[1])
 	// Write the file
-	fullPath := filepath.Join(tempDir, filename)
-	err := ioutil.WriteFile(fullPath, []byte(code), 0644)
+	fullPath := filepath.Join(tempDir, inputCode.Filename)
+	fmt.Println("Writing file:", fullPath)
+	err := ioutil.WriteFile(fullPath, []byte(inputCode.Code), 0644)
 	if err != nil {
 		return fmt.Errorf("error writing file %s: %v", fullPath, err)
-	}
-
-	return nil
-}
-
-func createFiles(filePaths []string) error {
-	for _, filePath := range filePaths {
-		// Create the directory structure
-		dirPath := filepath.Join(tempDir, filepath.Dir(filePath))
-		err := os.MkdirAll(dirPath, 0755)
-		if err != nil {
-			return fmt.Errorf("failed to create directory: %v", err)
-		}
-
-		// Create an empty file
-		fullPath := filepath.Join(tempDir, filePath)
-		err = ioutil.WriteFile(fullPath, []byte{}, 0644)
-		if err != nil {
-			return fmt.Errorf("failed to create file: %v", err)
-		}
 	}
 
 	return nil
@@ -425,7 +489,6 @@ func multiQueryLLM(prompts []string) []string {
 
 	// Print response choices amount
 	fmt.Println("Response body:", string(responseBody))
-	fmt.Println("Response choices amount:", len(response.Choices))
 
 	results := make([]string, len(response.Choices))
 	for i, choice := range response.Choices {
