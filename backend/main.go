@@ -143,7 +143,9 @@ func coldStartPrompt(framework, useCase string) string {
 	Use the UI framework whereever fit. Design the UI for a desktop webapp, and use the UI framework to make the components beautiful.
 	package-lock.json is redacted due to its length. Remember, dependency must be listed out first. ONLY output the packages, and then the code.
 	When writing code, make sure the code actually exist, do not hallucinate code if you aren't sure. Make sure the webapp can run with no errors.
-	In the env file, make it clear what API the key is for.
+	In the env file, make it clear what API the key is for. In addition, make the home page look good! The base packages provided are just the ones
+	that are installed, you don't have to use all of them if you don't need to. You can also write some mock data for placeholder text. If the user
+	wants ant design, don't import the 'antd/dist/antd.css' file as it will break the app.
 	Here is the source code: %s`,
 		framework, useCase, encodedFiles)
 }
