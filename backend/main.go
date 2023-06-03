@@ -118,7 +118,7 @@ func copyFile(src, dest string) error {
 }
 
 func coldStartPrompt(framework, useCase string) string {
-	return fmt.Sprintf("Given an existing codebase, use the %s UI framework to create a %s.\nWrite the complete code for any files that needs to be changed, which should look like: \"###FILENAME:\nfilename\n###CODE:\ncode\".\n If there is an API key involved, make a centralized .env file with all the keys needed, and read from that file in your new code. Use the UI framework whereever fit. Design the UI for a desktop webapp, and use the UI framework to make the components beautiful. package-lock.json is redacted due to its length. Here is the source code: %s", framework, useCase, useCase, encodedFiles)
+	return fmt.Sprintf("Given an existing codebase, use the %s UI framework to create a %s.\nWrite the complete code for any files that needs to be changed, which should look like: \"###FILENAME:\nfilename\n###CODE:\ncode\".\n If there is an API key involved, make a centralized .env file with all the keys needed, and read from that file in your new code. Use the UI framework whereever fit. Design the UI for a desktop webapp, and use the UI framework to make the components beautiful. package-lock.json is redacted due to its length. Here is the source code: %s", framework, useCase, encodedFiles)
 }
 
 func readAPIKey() error {
