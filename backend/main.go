@@ -2623,7 +2623,7 @@ func readAPIKey() error {
 func startServer() {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/coldStart", coldStartHandler).Methods("POST")
-	r.HandleFunc("/api/download/{filename}", downloadFileHandler).Methods("GET") // new route for file download
+	r.HandleFunc("/api/getFile", getFileHandler).Methods("GET") // new route for file download
 	err := http.ListenAndServe(":8080", r)
 	if err != nil {
 		fmt.Println("Error starting the server:", err)
@@ -2692,6 +2692,29 @@ func installDependencies(packages []string) error {
 	}
 
 	return nil
+}
+
+func getFileHandler(w http.ResponseWriter, r *http.Request) {
+	// Response should contain two fields, boolean exist and string content
+	type Response struct {
+		Exist   bool   `json:"exist"`
+		Content string `json:"content"`
+	}
+
+	// Parse the filename from the query string
+	query := r.URL.Query()
+	filename := query.Get("filename")
+	// Read the file using getFile
+	file := getFile(filename)
+	// If the file is empty, set exist to false
+	if file == "" {
+		json.NewEncoder(w).Encode(Response{Exist: false, Content: ""})
+		return
+	}
+
+	// Otherwise, set exist to true and content to the file content
+	json.NewEncoder(w).Encode(Response{Exist: true, Content: file})
+	return
 }
 
 func coldStartHandler(w http.ResponseWriter, r *http.Request) {
@@ -2765,6 +2788,16 @@ func encodeFilesToPrompt(filePath string) string {
 		}
 	}
 	return resultString
+}
+
+func getFile(filePath string) string {
+	// Read the contents of the file
+	contents, err := ioutil.ReadFile(tempDir + "/" + filePath)
+	if err != nil {
+		return ""
+	}
+
+	return string(contents)
 }
 
 func writeFile(inputCode File) error {
@@ -2971,16 +3004,4 @@ func onExit() {
 		os.Exit(1)
 	}
 	fmt.Println("Removed temporary directory")
-}
-
-func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	filename := vars["filename"]
-
-	// Set up the HTTP headers for sending the file
-	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
-	w.Header().Set("Content-Type", "application/octet-stream")
-
-	// Send the file
-	http.ServeFile(w, r, filepath.Join(tempDir, filename))
 }
