@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 
 var OPENAI_API_KEY string
 var tempDir, _ = ioutil.TempDir("", "example")
+var encodedFiles = encodeFilesToPrompt("base")
 
 func main() {
 	// First read the API key
@@ -31,9 +33,8 @@ func main() {
 	// Print temp folder for debugging
 	fmt.Println("Temporary directory:", tempDir)
 
-	// Read the directory base and use the encodeFilesToPrompt function to encode the files to a prompt
-	encodedFiles := encodeFilesToPrompt("base")
-	fmt.Println("Encoded files:", encodedFiles)
+	// Copy the base files to the temp folder
+	copyFiles("base", tempDir)
 
 	// Start the RESTful server
 	go startServer()
@@ -53,8 +54,71 @@ func main() {
 	systray.Run(onReady, onExit)
 }
 
+func copyFiles(src, dest string) error {
+	// Retrieve information about the source directory
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	// Create the destination directory if it doesn't exist
+	err = os.MkdirAll(dest, srcInfo.Mode())
+	if err != nil {
+		return err
+	}
+
+	// Retrieve a list of files and directories in the source directory
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	// Iterate through each entry in the source directory
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		destPath := filepath.Join(dest, entry.Name())
+
+		if entry.IsDir() {
+			// If the entry is a directory, recursively copy its contents
+			err = copyFiles(srcPath, destPath)
+			if err != nil {
+				return err
+			}
+		} else {
+			// If the entry is a file, copy it to the destination directory
+			err = copyFile(srcPath, destPath)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func copyFile(src, dest string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	destFile, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, srcFile)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func coldStartPrompt(framework, useCase string) string {
-	return fmt.Sprintf("Use Typescript, react and vite.js with the %s UI framework to create a %s.\nAssume that Node.js, npm, vite.js are all downloaded already.\nONLY output the list of filepaths required to create %s, with \"\\n\" as a delimiter. Remember, only output the list. Use vitejs/plugin-react instead of vitejs/plugin-react-refresh	as that package is deprecated. Remember to generate all the files, such as the App.tsx, main.tsx, index.html and any other files required for a typescript react vite.js project. If there is an API key involved, make a centralized apiKeys.env file with all the keys needed, and use the UI framework where ever you can. Design the UI as if it was for a desktop webapp, and use the UI framework to make the components beautiful.", framework, useCase, useCase)
+	return fmt.Sprintf("Given an existing codebase, use the %s UI framework to create a %s.\nWrite the complete code for any files that needs to be changed, which should look like: \"###FILENAME:\nfilename\n###CODE:\ncode\".\n If there is an API key involved, make a centralized .env file with all the keys needed, and read from that file in your new code. Use the UI framework whereever fit. Design the UI for a desktop webapp, and use the UI framework to make the components beautiful. package-lock.json is redacted due to its length. Here is the source code: %s", framework, useCase, useCase, encodedFiles)
 }
 
 func readAPIKey() error {
@@ -99,30 +163,20 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	coldStartPromptRequest := coldStartPrompt(requestData.Framework, requestData.UseCase)
-	filePathsResponse := singleQueryLLM(coldStartPromptRequest)
+	//coldStartPromptRequest := coldStartPrompt(requestData.Framework, requestData.UseCase)
+	//codeChanges := singleQueryLLM(coldStartPromptRequest)
+	codeChanges := "###FILENAME:\n.env\n###CODE:\nREACT_APP_WEATHER_API_KEY=your_api_key_here\n\n###FILENAME:\nsrc/App.tsx\n###CODE:\nimport React, { useState } from 'react';\nimport { Layout, Input, Button, Card, Typography } from 'antd';\nimport './App.css';\n\nconst { Header, Content } = Layout;\nconst { Title } = Typography;\n\nconst App: React.FC = () => {\n  const [city, setCity] = useState('');\n  const [weatherData, setWeatherData] = useState<any>(null);\n\n  const fetchWeatherData = async () => {\n    const response = await fetch(\n      `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${process.env.REACT_APP_WEATHER_API_KEY}&units=metric`\n    );\n    const data = await response.json();\n    setWeatherData(data);\n  };\n\n  return (\n    <Layout className=\"layout\">\n      <Header>\n        <Title level={2} style={{ color: 'white' }}>\n          Weather App\n        </Title>\n      </Header>\n      <Content className=\"content\">\n        <Input\n          placeholder=\"Enter city name\"\n          value={city}\n          onChange={(e) => setCity(e.target.value)}\n          onPressEnter={fetchWeatherData}\n        />\n        <Button type=\"primary\" onClick={fetchWeatherData}>\n          Search\n        </Button>\n        {weatherData && (\n          <Card title={weatherData.name} className=\"weather-card\">\n            <p>Temperature: {weatherData.main.temp}°C</p>\n            <p>Feels like: {weatherData.main.feels_like}°C</p>\n            <p>Humidity: {weatherData.main.humidity}%</p>\n            <p>Wind speed: {weatherData.wind.speed} m/s</p>\n          </Card>\n        )}\n      </Content>\n    </Layout>\n  );\n};\n\nexport default App;\n\n###FILENAME:\nsrc/App.css\n###CODE:\n.layout {\n  height: 100vh;\n}\n\n.content {\n  padding: 50px;\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  justify-content: center;\n}\n\n.weather-card {\n  margin-top: 20px;\n  width: 300px;\n}"
 	// If response is empty, return an error
-	if filePathsResponse == "" {
+	if codeChanges == "" {
 		http.Error(w, "Error querying LLM, did you export the API key to $OPENAI_API_KEY?", http.StatusInternalServerError)
 		return
 	}
 
-	filePaths := strings.Split(filePathsResponse, "\n")
-	createFiles(filePaths)
-	codeGenPrompt := "Write the code for each file outputted in the chat history in sequential order.\nEach file's code should be formatted as \"###FILENAME:\nfilename\n###CODE:\ncode\"\nOnly output filepath and raw code for each file followed by the line breaks and delimiter."
-	llmHistory := []string{coldStartPromptRequest, filePathsResponse, codeGenPrompt}
-	combinedCodeResponse := multiQueryLLM(llmHistory)
-	codeResponse := combinedCodeResponse[len(combinedCodeResponse)-1]
-	writeFiles(codeResponse)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK) // Set the HTTP status code to 200
-	json.NewEncoder(w).Encode(struct {
-		Message  string `json:"message"`
-		Response string `json:"response"`
-	}{
-		Message:  "Prompt received successfully",
-		Response: codeResponse,
-	})
+	newChanges := decodeFilesFromResponse(codeChanges)
+
+	for _, change := range newChanges {
+		writeFiles(change)
+	}
 }
 
 func encodeFilesToPrompt(filePath string) string {
@@ -137,6 +191,10 @@ func encodeFilesToPrompt(filePath string) string {
 
 	// Iterate through each file in the directory
 	for _, file := range files {
+		// If filename is .gitignore or package-lock.json or .eslintrc.cjs, skip it
+		if file.Name() == ".gitignore" || file.Name() == "package-lock.json" || file.Name() == ".eslintrc.cjs" {
+			continue
+		}
 		// Check if the file is a regular file (not a directory)
 		if file.Mode().IsRegular() {
 			// Read the contents of the file
@@ -152,33 +210,46 @@ func encodeFilesToPrompt(filePath string) string {
 			formattedString := fmt.Sprintf("###FILENAME:\n%s\n###CODE:\n%s", filePath, code)
 
 			// Print the formatted string
-			fmt.Println(formattedString)
 			resultString += formattedString + "\n"
 		}
 	}
 	return resultString
 }
 
-func writeFiles(inputCode string) error {
-	entries := strings.Split(inputCode, "###FILENAME:")
+func decodeFilesFromResponse(encodedFiles string) [][]string {
+	// Define the regular expression pattern to match the filename and code portions
+	filenamePattern := "###FILENAME:\n"
+	codePattern := "###CODE:\n"
 
-	// Skip the first entry since it's empty
-	entries = entries[1:]
+	fileCodeCombined := strings.Split(encodedFiles, filenamePattern)
 
-	for _, entry := range entries {
-		parts := strings.SplitN(entry, "###CODE:\n", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid input format: %s", entry)
+	var result [][]string
+	for _, fileCode := range fileCodeCombined {
+
+		fileCodeSplit := strings.Split(fileCode, codePattern)
+		if len(fileCodeSplit) != 2 {
+			fmt.Println("Length of array is:", len(fileCodeSplit))
+			fmt.Println(fileCodeSplit)
+			continue
+		} else {
+			// Trim the trailing newline character and spaces
+			fileCodeSplit[0] = strings.TrimSpace(fileCodeSplit[0])
+			fileCodeSplit[1] = strings.TrimSpace(fileCodeSplit[1])
 		}
+		// Append the array to the result
+		result = append(result, fileCodeSplit)
+	}
+	return result
+}
 
-		filename := strings.TrimSpace(parts[0])
-		code := strings.TrimSpace(parts[1])
-		// Write the file
-		fullPath := filepath.Join(tempDir, filename)
-		err := ioutil.WriteFile(fullPath, []byte(code), 0644)
-		if err != nil {
-			return fmt.Errorf("error writing file %s: %v", fullPath, err)
-		}
+func writeFiles(inputCode []string) error {
+	filename := strings.TrimSpace(inputCode[0])
+	code := strings.TrimSpace(inputCode[1])
+	// Write the file
+	fullPath := filepath.Join(tempDir, filename)
+	err := ioutil.WriteFile(fullPath, []byte(code), 0644)
+	if err != nil {
+		return fmt.Errorf("error writing file %s: %v", fullPath, err)
 	}
 
 	return nil
@@ -255,6 +326,8 @@ func singleQueryLLM(prompt string) string {
 		fmt.Println("Error reading response body:", err)
 		return ""
 	}
+
+	fmt.Println("ChatGPT response:", string(responseBody))
 
 	var response struct {
 		Choices []struct {
@@ -380,5 +453,4 @@ func onExit() {
 		os.Exit(1)
 	}
 	fmt.Println("Removed temporary directory")
-	fmt.Println("Finished!")
 }
