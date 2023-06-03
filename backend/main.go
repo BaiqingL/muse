@@ -2777,6 +2777,13 @@ func exportHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", "attachment; filename="+zipName)
 	w.Write(zipFile)
+
+	// Delete the zip file
+	err = os.Remove(zipName)
+	if err != nil {
+		http.Error(w, "Error removing zip file", http.StatusInternalServerError)
+		return
+	}
 }
 
 func getFileHandler(w http.ResponseWriter, r *http.Request) {
