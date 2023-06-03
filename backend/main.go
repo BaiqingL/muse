@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 
@@ -20,16 +21,29 @@ var OPENAI_API_KEY string
 var tempDir, _ = ioutil.TempDir("", "example")
 
 func main() {
+	// First read the API key
 	err := readAPIKey()
 	if err != nil {
 		log.Fatal(err)
 		os.Exit(1)
 	}
 
+	// Print temp folder for debugging
 	fmt.Println("Temporary directory:", tempDir)
 
 	// Start the RESTful server
 	go startServer()
+
+	// Handle graceful control-C
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		for range c {
+			onExit()
+			systray.Quit()
+			os.Exit(0)
+		}
+	}()
 
 	// Run the systray module
 	systray.Run(onReady, onExit)
