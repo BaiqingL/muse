@@ -19,3 +19,5 @@ go.work
 
 backend/apiKey.env
 backend/backend
+
+*.py

@@ -5,33 +5,103 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/getlantern/systray"
 	"github.com/getlantern/systray/example/icon"
 	"github.com/gorilla/mux"
 )
 
+var OPENAI_API_KEY string
+var tempDir, _ = ioutil.TempDir("", "example")
+
 func main() {
-	fmt.Println("Starting app.")
+	err := readAPIKey()
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Temporary directory:", tempDir)
 
 	// Start the RESTful server
 	go startServer()
 
-	// Run the systray
+	// Run the systray module
 	systray.Run(onReady, onExit)
+}
+
+func coldStartPrompt(framework, useCase string) string {
+	return fmt.Sprintf("Use Typescript, react and vite.js with the %s UI framework to create a %s.\nAssume that Node.js, npm, vite.js are all downloaded already.\nONLY output the list of filepaths required to create %s, with \"\\n\" as a delimiter. Remember, only output the list.", framework, useCase, useCase)
+}
+
+func readAPIKey() error {
+	filePath := "apiKey.env"
+
+	// Read the content of the file
+	content, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %v", filePath, err)
+	}
+
+	// Extract the API key from the content
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "OPENAI_API_KEY=") {
+			OPENAI_API_KEY = strings.TrimPrefix(line, "OPENAI_API_KEY=")
+			return nil
+		}
+	}
+
+	return fmt.Errorf("API key not found in %s", filePath)
 }
 
 func startServer() {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/userPrompt", handleUserPrompt).Methods("POST")
-
-	fmt.Println("Starting RESTful server on port 8080...")
+	r.HandleFunc("/api/coldStart", coldStartHandler).Methods("POST")
 	err := http.ListenAndServe(":8080", r)
 	if err != nil {
 		fmt.Println("Error starting the server:", err)
 	}
+}
+
+func coldStartHandler(w http.ResponseWriter, r *http.Request) {
+	var requestData struct {
+		Framework string `json:"framework"`
+		UseCase   string `json:"useCase"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&requestData)
+	if err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	// Query Codex
+	response := queryLLM(coldStartPrompt(requestData.Framework, requestData.UseCase))
+	// If response is empty, return an error
+	if response == "" {
+		http.Error(w, "Error querying LLM, did you export the API key to $OPENAI_API_KEY?", http.StatusInternalServerError)
+		return
+	}
+
+	filePaths := strings.Split(response, "\n")
+	createFiles(filePaths)
+	// Send a response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK) // Set the HTTP status code to 200
+	json.NewEncoder(w).Encode(struct {
+		Message  string `json:"message"`
+		Response string `json:"response"`
+	}{
+		Message:  "Prompt received successfully",
+		Response: response,
+	})
 }
 
 func handleUserPrompt(w http.ResponseWriter, r *http.Request) {
@@ -46,8 +116,7 @@ func handleUserPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Query ChatGPT
-	response := queryChatGPT(requestData.Prompt)
-	fmt.Println("ChatGPT response:", response)
+	response := queryLLM(requestData.Prompt)
 	// If response is empty, return an error
 	if response == "" {
 		http.Error(w, "Error querying ChatGPT, did you export the API key to $OPENAI_API_KEY?", http.StatusInternalServerError)
@@ -66,7 +135,27 @@ func handleUserPrompt(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func queryChatGPT(prompt string) string {
+func createFiles(filePaths []string) error {
+	for _, filePath := range filePaths {
+		// Create the directory structure
+		dirPath := filepath.Join(tempDir, filepath.Dir(filePath))
+		err := os.MkdirAll(dirPath, 0755)
+		if err != nil {
+			return fmt.Errorf("failed to create directory: %v", err)
+		}
+
+		// Create an empty file
+		fullPath := filepath.Join(tempDir, filePath)
+		err = ioutil.WriteFile(fullPath, []byte{}, 0644)
+		if err != nil {
+			return fmt.Errorf("failed to create file: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func queryLLM(prompt string) string {
 	type Message struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
@@ -79,7 +168,7 @@ func queryChatGPT(prompt string) string {
 	}
 
 	requestData := Request{
-		Model: "gpt-3.5-turbo",
+		Model: "gpt-4",
 		Messages: []Message{
 			{
 				Role:    "user",
@@ -103,7 +192,7 @@ func queryChatGPT(prompt string) string {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+os.Getenv("OPENAI_API_KEY"))
+	req.Header.Set("Authorization", "Bearer "+OPENAI_API_KEY)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -142,10 +231,6 @@ func queryChatGPT(prompt string) string {
 	return ""
 }
 
-func onExit() {
-	fmt.Println("Finished!")
-}
-
 func onReady() {
 	systray.SetTemplateIcon(icon.Data, icon.Data)
 	mQuitOrig := systray.AddMenuItem("Quit", "Quit the whole app")
@@ -156,4 +241,14 @@ func onReady() {
 		fmt.Println("Finished quitting")
 	}()
 	fmt.Println("Started!")
+}
+
+func onExit() {
+	err := os.RemoveAll(tempDir)
+	if err != nil {
+		fmt.Println("Error removing temporary directory:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Removed temporary directory")
+	fmt.Println("Finished!")
 }
