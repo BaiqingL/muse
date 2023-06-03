@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -2624,6 +2625,7 @@ func startServer() {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/coldStart", coldStartHandler).Methods("POST")
 	r.HandleFunc("/api/getFile", getFileHandler).Methods("GET") // new route for file download
+	r.HandleFunc("/api/export", exportHandler).Methods("GET")
 	err := http.ListenAndServe(":8080", r)
 	if err != nil {
 		fmt.Println("Error starting the server:", err)
@@ -2692,6 +2694,89 @@ func installDependencies(packages []string) error {
 	}
 
 	return nil
+}
+
+func zipFiles(source, target string) error {
+	// Create a new zip file
+	zipFile, err := os.Create(target)
+	if err != nil {
+		return err
+	}
+	defer zipFile.Close()
+
+	// Create a new zip writer
+	zipWriter := zip.NewWriter(zipFile)
+	defer zipWriter.Close()
+
+	// Walk through the source directory and add files to the zip archive
+	err = filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		// Open the file
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		// Create a new file header
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+
+		// Set the name for the file in the zip archive
+		relPath, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		header.Name = relPath
+
+		// Add the file to the zip archive
+		writer, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		// Write the file's contents to the zip archive
+		_, err = io.Copy(writer, file)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	return err
+}
+
+func exportHandler(w http.ResponseWriter, r *http.Request) {
+	// Zip the tempdir, and send it as a response
+	zipName := "export.zip"
+	err := zipFiles(tempDir, zipName)
+	if err != nil {
+		http.Error(w, "Error zipping files", http.StatusInternalServerError)
+		return
+	}
+
+	// Read the zip file
+	zipFile, err := ioutil.ReadFile(zipName)
+	if err != nil {
+		http.Error(w, "Error reading zip file", http.StatusInternalServerError)
+		return
+	}
+
+	// Send the zip file as a response
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", "attachment; filename="+zipName)
+	w.Write(zipFile)
 }
 
 func getFileHandler(w http.ResponseWriter, r *http.Request) {
