@@ -31,6 +31,10 @@ func main() {
 	// Print temp folder for debugging
 	fmt.Println("Temporary directory:", tempDir)
 
+	// Read the directory base and use the encodeFilesToPrompt function to encode the files to a prompt
+	encodedFiles := encodeFilesToPrompt("base")
+	fmt.Println("Encoded files:", encodedFiles)
+
 	// Start the RESTful server
 	go startServer()
 
@@ -76,7 +80,6 @@ func readAPIKey() error {
 
 func startServer() {
 	r := mux.NewRouter()
-	r.HandleFunc("/api/userPrompt", handleUserPrompt).Methods("POST")
 	r.HandleFunc("/api/coldStart", coldStartHandler).Methods("POST")
 	err := http.ListenAndServe(":8080", r)
 	if err != nil {
@@ -122,6 +125,40 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func encodeFilesToPrompt(filePath string) string {
+	// Retrieve a list of files in the directory
+	files, err := ioutil.ReadDir(filePath)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return ""
+	}
+
+	resultString := ""
+
+	// Iterate through each file in the directory
+	for _, file := range files {
+		// Check if the file is a regular file (not a directory)
+		if file.Mode().IsRegular() {
+			// Read the contents of the file
+			filePath := filepath.Join(filePath, file.Name())
+			contents, err := ioutil.ReadFile(filePath)
+			if err != nil {
+				fmt.Println("Error:", err)
+				continue
+			}
+
+			// Prepare the formatted string
+			code := string(contents)
+			formattedString := fmt.Sprintf("###FILENAME:\n%s\n###CODE:\n%s", filePath, code)
+
+			// Print the formatted string
+			fmt.Println(formattedString)
+			resultString += formattedString + "\n"
+		}
+	}
+	return resultString
+}
+
 func writeFiles(inputCode string) error {
 	entries := strings.Split(inputCode, "###FILENAME:")
 
@@ -145,37 +182,6 @@ func writeFiles(inputCode string) error {
 	}
 
 	return nil
-}
-
-func handleUserPrompt(w http.ResponseWriter, r *http.Request) {
-	var requestData struct {
-		Prompt string `json:"prompt"`
-	}
-
-	err := json.NewDecoder(r.Body).Decode(&requestData)
-	if err != nil {
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
-		return
-	}
-
-	// Query ChatGPT
-	response := singleQueryLLM(requestData.Prompt)
-	// If response is empty, return an error
-	if response == "" {
-		http.Error(w, "Error querying ChatGPT, did you export the API key to $OPENAI_API_KEY?", http.StatusInternalServerError)
-		return
-	}
-
-	// Send a response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK) // Set the HTTP status code to 200
-	json.NewEncoder(w).Encode(struct {
-		Message  string `json:"message"`
-		Response string `json:"response"`
-	}{
-		Message:  "Prompt received successfully",
-		Response: response,
-	})
 }
 
 func createFiles(filePaths []string) error {
