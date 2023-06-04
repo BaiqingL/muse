@@ -21,6 +21,11 @@ import (
 var OPENAI_API_KEY string
 var tempDir, _ = ioutil.TempDir("", "example")
 var encodedFiles = encodeFilesToPrompt("base")
+var nodeServerAction = make(chan int)
+var cmd *exec.Cmd
+var START_SERVER = 1
+var STOP_SERVER = 2
+var RESTART_SERVER = 3
 var Data []byte = []byte{
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
 	0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00,
@@ -2592,16 +2597,108 @@ func coldStartPrompt(framework, useCase string) string {
 		framework, useCase, encodedFiles)
 }
 
+func iteratePrompt(codebase, iterate, html string) string {
+	return fmt.Sprintf(`Given an existing codebase, you need to make the following change: %s.
+	First, output the list of all the additional packages that needs to be installed if there are any, such as the frameworks, supporting packages, routers, anything. It should look like:
+	###PACKAGES:
+	package1
+	package2
+
+	Only output top level packages, not subpackages.
+	Changing only the minimal amount of code required to make the change, write the complete code for any files that needs to be changed, 
+	which should look like:
+
+	###FILENAME:
+	filename
+	###CODE:
+	code
+	
+	Here is the existing codebase:
+	%s
+	
+	package-lock.json is redacted due to its length. Remember, dependency must be listed out first, even if it is empty.
+	ONLY output the packages, and then the code. If there are no additional packages, just leave it blank but still output the ###PACKAGES and
+	blank line after.
+	Remember, just change the required fields and try not to make any extra changes.
+	The user may have also provided some html the frontend saw as the compiled website, if it exists it will be here:
+	%s`, iterate, codebase, html)
+}
+
 func startServer() {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/coldStart", coldStartHandler).Methods("POST")
+	r.HandleFunc("/api/iterate", iterateHandler).Methods("POST")
 	r.HandleFunc("/api/getFile", getFileHandler).Methods("GET")
 	r.HandleFunc("/api/writeFile", writeFileHandler).Methods("POST")
 	r.HandleFunc("/api/export", exportHandler).Methods("GET")
+	r.HandleFunc("/api/startNpm", startNpmHandler).Methods("GET")
+	r.HandleFunc("/api/stopNpm", stopNpmHandler).Methods("GET")
+	r.HandleFunc("/api/restartNpm", restartNpmHandler).Methods("GET")
 	err := http.ListenAndServe(":8080", r)
 	if err != nil {
 		fmt.Println("Error starting the server:", err)
 	}
+}
+
+func startNpmHandler(w http.ResponseWriter, r *http.Request) {
+	// Response should contain one field, boolean success
+	type Response struct {
+		Success bool `json:"success"`
+	}
+
+	// Start the npm server
+	err := startDevServer()
+	if err != nil {
+		http.Error(w, "Error starting npm server", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with success
+	json.NewEncoder(w).Encode(Response{Success: true})
+	return
+}
+
+func stopNpmHandler(w http.ResponseWriter, r *http.Request) {
+	// Response should contain one field, boolean success
+	type Response struct {
+		Success bool `json:"success"`
+	}
+
+	// Stop the npm server
+	err := stopDevServer()
+	if err != nil {
+		http.Error(w, "Error stopping npm server", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with success
+	json.NewEncoder(w).Encode(Response{Success: true})
+	return
+}
+
+func restartNpmHandler(w http.ResponseWriter, r *http.Request) {
+	// Response should contain one field, boolean success
+	type Response struct {
+		Success bool `json:"success"`
+	}
+
+	// Stop the npm server
+	err := stopDevServer()
+	if err != nil {
+		http.Error(w, "Error stopping npm server", http.StatusInternalServerError)
+		return
+	}
+
+	// Start the npm server
+	err = startDevServer()
+	if err != nil {
+		http.Error(w, "Error starting npm server", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with success
+	json.NewEncoder(w).Encode(Response{Success: true})
+	return
 }
 
 func coldStartHandler(w http.ResponseWriter, r *http.Request) {
@@ -2636,7 +2733,45 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 
 	for _, file := range code {
 		fmt.Printf("Filename: %s\n", file.Filename)
-		writeFile(file)
+		writeFile(file, true)
+	}
+
+	// Respond with success
+	w.WriteHeader(http.StatusOK)
+}
+
+func iterateHandler(w http.ResponseWriter, r *http.Request) {
+	// The request should contain two fields, string html and string prompt
+	var requestData struct {
+		Html   string `json:"html"`
+		Prompt string `json:"prompt"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&requestData)
+	if err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	currentCodebase := encodeFilesToPrompt(tempDir)
+	iterateCodeRequest := iteratePrompt(currentCodebase, requestData.Prompt, requestData.Html)
+
+	codeChanges := singleQueryLLM(iterateCodeRequest)
+	// If response is empty, return an error
+	if codeChanges == "" {
+		http.Error(w, "Error querying OpenAI, did you export the API key to $OPENAI_API_KEY?", http.StatusInternalServerError)
+		return
+	}
+
+	packages := parsePackages(codeChanges)
+
+	code := parseCode(codeChanges)
+	installDependencies(packages)
+
+	for _, file := range code {
+		fmt.Printf("Filename: %s\n", file.Filename)
+		fmt.Printf("Code: %s\n", file.Code)
+		writeFile(file, true)
 	}
 
 	// Respond with success
@@ -2685,7 +2820,7 @@ func writeFileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Write the file using writeFile
-	err = writeFile(File{Filename: requestData.Filename, Code: requestData.Content})
+	err = writeFile(File{Filename: requestData.Filename, Code: requestData.Content}, false)
 	if err != nil {
 		http.Error(w, "Error writing file", http.StatusInternalServerError)
 		return
@@ -2890,10 +3025,15 @@ func getFile(filePath string) string {
 	return string(contents)
 }
 
-func writeFile(inputCode File) error {
+func writeFile(inputCode File, iterate bool) error {
 	// Check if tempDir + inputCode.Filename's dir exists
 	dir := filepath.Dir(inputCode.Filename)
-	fullDir := filepath.Join(tempDir, dir)
+	var fullDir string
+	if !iterate {
+		fullDir = filepath.Join(tempDir, dir)
+	} else {
+		fullDir = dir
+	}
 	// Check if the directory exists
 	if _, err := os.Stat(fullDir); os.IsNotExist(err) {
 		// Create the directory
@@ -2907,7 +3047,12 @@ func writeFile(inputCode File) error {
 	}
 
 	// Write the file
-	fullPath := filepath.Join(tempDir, inputCode.Filename)
+	var fullPath string
+	if !iterate {
+		fullPath = filepath.Join(tempDir, inputCode.Filename)
+	} else {
+		fullPath = inputCode.Filename
+	}
 	fmt.Println("Writing file:", fullPath)
 	err := ioutil.WriteFile(fullPath, []byte(inputCode.Code), 0644)
 	if err != nil {
@@ -3076,6 +3221,36 @@ func multiQueryLLM(prompts []string) []string {
 	return results
 }
 
+func startDevServer() error {
+
+	installDeps := exec.Command("npm", "install")
+	installDeps.Dir = tempDir
+	err := installDeps.Run()
+	if err != nil {
+		fmt.Println("Error installing dependencies:", err)
+		return err
+	}
+	cmd = exec.Command("npm", "run", "dev", "--", "--port", "8808")
+	cmd.Dir = tempDir
+	err = cmd.Start()
+	if err != nil {
+		fmt.Println("Error starting npm server:", err)
+		return err
+	}
+	fmt.Println("Started npm server")
+	return nil
+}
+
+func stopDevServer() error {
+	err := cmd.Process.Kill()
+	if err != nil {
+		fmt.Println("Error stopping npm server:", err)
+		return err
+	}
+	fmt.Println("Stopped npm server")
+	return nil
+}
+
 func onReady() {
 	systray.SetTemplateIcon(Data, Data)
 	mQuitOrig := systray.AddMenuItem("Quit", "Quit the whole app")
@@ -3093,5 +3268,6 @@ func onExit() {
 		fmt.Println("Error removing temporary directory:", err)
 		os.Exit(1)
 	}
+	stopDevServer()
 	fmt.Println("Removed temporary directory")
 }
