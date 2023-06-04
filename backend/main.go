@@ -2733,7 +2733,7 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 
 	for _, file := range code {
 		fmt.Printf("Filename: %s\n", file.Filename)
-		writeFile(file, true)
+		writeFile(file, false)
 	}
 
 	// Respond with success
