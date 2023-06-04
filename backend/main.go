@@ -21,7 +21,6 @@ import (
 
 var OPENAI_API_KEY string
 var tempDir, _ = ioutil.TempDir("", "example")
-var encodedFiles = encodeFilesToPrompt("base")
 var devCmd *exec.Cmd
 var Data []byte = []byte{
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
@@ -2581,6 +2580,7 @@ func copyFile(src, dest string) error {
 }
 
 func coldStartPrompt(framework, useCase string) string {
+	encodedFiles := encodeFilesToPrompt("base")
 	return fmt.Sprintf(`Given an existing codebase, use the %s UI framework to create a %s.
 	First, output the list of all the packages that needs to be installed, such as the frameworks, supporting packages, routers, anything. It should look like:
 	###PACKAGES:
@@ -2668,6 +2668,7 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 	OPENAI_API_KEY = requestData.ApiKey
 
 	coldStartCodeRequest := coldStartPrompt(requestData.Framework, requestData.UseCase)
+	fmt.Println("Cold start prompt:\n", coldStartCodeRequest)
 	codeChanges := singleQueryLLM(coldStartCodeRequest)
 	// If response is empty, return an error
 	if codeChanges == "" {
@@ -2703,6 +2704,7 @@ func iterateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	currentCodebase := encodeFilesToPrompt(tempDir)
+	fmt.Println("Current codebase:\n", currentCodebase)
 	iterateCodeRequest := iteratePrompt(currentCodebase, requestData.Prompt, requestData.Html)
 
 	codeChanges := singleQueryLLM(iterateCodeRequest)
