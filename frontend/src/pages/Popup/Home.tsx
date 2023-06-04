@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import {
+  Box,
   Button,
   Heading,
+  Image,
   Progress,
   Select,
   Stack,
@@ -10,6 +12,9 @@ import {
 } from '@chakra-ui/react';
 import './Home.css';
 import { api } from '../../util/api';
+
+// @ts-ignore
+import logo from '../../assets/img/logo.svg';
 
 const SAMPLE_APP_IDEAS = [
   'An app that helps you discover random inspirational quotes',
@@ -56,6 +61,7 @@ const Popup = () => {
   const [prompt, setPrompt] = useState<string>();
   const [framework, setFramework] = useState<(typeof UI_FRAMEWORKS)[0]>();
   const [loading, setLoading] = useState<boolean>(false);
+  const [envContents, setEnvContents] = useState<string>('');
 
   const handleCreate = async () => {
     if (!prompt || !framework) {
@@ -71,17 +77,30 @@ const Popup = () => {
         return;
       }
 
-      const res = await api.post('/api/coldStart', {
-        framework: framework.id,
-        useCase: prompt,
-        apiKey: apiKey.apiKey,
+      // const resColdStart = await api.post('/api/coldStart', {
+      //   framework: framework.id,
+      //   useCase: prompt,
+      //   apiKey: apiKey.apiKey,
+      // });
+
+      const resCheckEnv = await api.get('/api/getFile', {
+        params: {
+          filename: '.env',
+        },
       });
 
-      console.log(res.data);
+      console.log(resCheckEnv);
 
-      await chrome.tabs.create({
-        url: APP_URL,
-      });
+      if (resCheckEnv.data.exist) {
+        const contents = resCheckEnv.data.content;
+        console.log(contents);
+
+        setEnvContents(contents);
+      }
+
+      // await chrome.tabs.create({
+      //   url: APP_URL,
+      // });
     } catch (err) {
       console.log(err);
     }
@@ -91,9 +110,9 @@ const Popup = () => {
 
   return (
     <Stack spacing={4} p={4}>
-      <Heading size="md" alignSelf="center">
-        Create your new dream app
-      </Heading>
+      <Box alignSelf="center">
+        <Image src={logo} alt="logo" maxH="50px" />
+      </Box>
       <Text color="gray">
         Start with an idea, and we'll generate a prototype
       </Text>
@@ -124,6 +143,13 @@ const Popup = () => {
       </Button>
 
       {loading && <Progress size="xs" isIndeterminate />}
+
+      {envContents && (
+        <Stack>
+          <Heading size="md">.env</Heading>
+          <Text>{envContents}</Text>
+        </Stack>
+      )}
     </Stack>
   );
 };
