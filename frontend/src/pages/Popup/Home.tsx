@@ -1,9 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
-  Box,
   Button,
-  ChakraProvider,
   Heading,
+  Progress,
   Select,
   Stack,
   Text,
@@ -51,20 +50,43 @@ const UI_FRAMEWORKS = [
 const SELECTED_SAMPLE =
   SAMPLE_APP_IDEAS[Math.floor(Math.random() * SAMPLE_APP_IDEAS.length)];
 
-const APP_URL = 'https://google.com/';
+const APP_URL = 'http://localhost:5173';
 
 const Popup = () => {
   const [prompt, setPrompt] = useState<string>();
   const [framework, setFramework] = useState<(typeof UI_FRAMEWORKS)[0]>();
+  const [loading, setLoading] = useState<boolean>(false);
 
   const handleCreate = async () => {
-    const res = await api.post('/api/userPrompt', { prompt });
+    if (!prompt || !framework) {
+      return;
+    }
 
-    console.log(res.data);
+    try {
+      setLoading(true);
 
-    await chrome.tabs.create({
-      url: APP_URL,
-    });
+      const apiKey = await chrome.storage.local.get(['apiKey']);
+
+      if (!apiKey) {
+        return;
+      }
+
+      const res = await api.post('/api/coldStart', {
+        framework: framework.id,
+        useCase: prompt,
+        apiKey: apiKey.apiKey,
+      });
+
+      console.log(res.data);
+
+      await chrome.tabs.create({
+        url: APP_URL,
+      });
+    } catch (err) {
+      console.log(err);
+    }
+
+    setLoading(false);
   };
 
   return (
@@ -85,7 +107,6 @@ const Popup = () => {
         onChange={(e) =>
           setFramework(UI_FRAMEWORKS.find((f) => f.id === e.target.value))
         }
-        defaultValue={UI_FRAMEWORKS[0].id}
       >
         {UI_FRAMEWORKS.map((framework) => (
           <option key={framework.id} value={framework.id}>
@@ -93,7 +114,16 @@ const Popup = () => {
           </option>
         ))}
       </Select>
-      <Button onClick={handleCreate}>Create</Button>
+      <Button
+        onClick={handleCreate}
+        colorScheme="purple"
+        alignSelf="end"
+        isLoading={loading}
+      >
+        Create
+      </Button>
+
+      {loading && <Progress size="xs" isIndeterminate />}
     </Stack>
   );
 };

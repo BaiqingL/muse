@@ -48,7 +48,7 @@
   box-sizing: border-box;
 
   width: 100%;
-  height: 80px;
+  height: 100px;
   resize: none;
   border: none;
   outline: none;
@@ -61,8 +61,14 @@
   margin: 8px 0;
 }
 
+.muse-popup > textarea:focus {
+  border: 1px solid var(--extension-primary);
+}
+
 .muse-popup > button {
   border: none;
+
+  font-weight: bold;
 
   background: var(--extension-primary);
   color: var(--extension-white);

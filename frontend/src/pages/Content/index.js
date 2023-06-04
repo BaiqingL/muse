@@ -9,6 +9,24 @@ popup.innerHTML = `
 <button>Submit</button>
 `;
 
+var textArea = popup.querySelector('textarea');
+var button = popup.querySelector('button');
+
+button.addEventListener('click', function () {
+  console.log(textArea.value);
+
+  // get some defining characteristics of the element, like its tag name, class names, and text content
+  var tagName = selectedElement.tagName;
+  var classNames = Array.from(selectedElement.classList).filter(
+    (className) => !className.startsWith('muse-')
+  );
+  var textContent = selectedElement.textContent;
+
+  console.log(`tagName: ${tagName}`);
+  console.log(`classNames: ${classNames} ${classNames.length}`);
+  console.log(`textContent: ${textContent}`);
+});
+
 document.body.appendChild(popup); // Add the popup to the DOM
 
 function highlightElement(event) {
