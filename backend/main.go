@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -2476,13 +2475,6 @@ type File struct {
 }
 
 func main() {
-	// First read the API key
-	err := readAPIKey()
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(1)
-	}
-
 	// Print temp folder for debugging
 	fmt.Println("Temporary directory:", tempDir)
 
@@ -2600,27 +2592,6 @@ func coldStartPrompt(framework, useCase string) string {
 		framework, useCase, encodedFiles)
 }
 
-func readAPIKey() error {
-	filePath := "apiKey.env"
-
-	// Read the content of the file
-	content, err := ioutil.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to read %s: %v", filePath, err)
-	}
-
-	// Extract the API key from the content
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "OPENAI_API_KEY=") {
-			OPENAI_API_KEY = strings.TrimPrefix(line, "OPENAI_API_KEY=")
-			return nil
-		}
-	}
-
-	return fmt.Errorf("API key not found in %s", filePath)
-}
-
 func startServer() {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/coldStart", coldStartHandler).Methods("POST")
@@ -2638,6 +2609,7 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 	var requestData struct {
 		Framework string `json:"framework"`
 		UseCase   string `json:"useCase"`
+		ApiKey    string `json:"apiKey"`
 	}
 
 	err := json.NewDecoder(r.Body).Decode(&requestData)
@@ -2645,6 +2617,9 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
+	fmt.Println(requestData)
+
+	OPENAI_API_KEY = requestData.ApiKey
 
 	coldStartCodeRequest := coldStartPrompt(requestData.Framework, requestData.UseCase)
 	codeChanges := singleQueryLLM(coldStartCodeRequest)
