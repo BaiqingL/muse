@@ -47,6 +47,17 @@ Response:
 
 ```
 
+## api/iterate
+```
+POST /api/iterate
+
+Body:
+{
+  "html": "...",
+  "prompt": "...",
+}
+```
+
 ## api/export
 ```
 GET /api/export
