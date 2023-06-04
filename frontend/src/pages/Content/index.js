@@ -70,31 +70,6 @@ async function replaceWithLoading(event) {
   }
 }
 
-async function downloadZip() {
-  const response = await fetch('/export', { // Change '/export' to your Go server's route
-    method: 'GET'
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
-  }
-
-  const blob = await response.blob();
-
-  const url = window.URL.createObjectURL(blob);
-
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = 'export.zip';
-
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-}
-
 // Attach the event listener to track cursor movement
 document.addEventListener('mousemove', highlightElement);
 document.addEventListener('click', replaceWithLoading);
-
-// Attach the download function to the 'Export' button
-document.querySelector('#exportButton').addEventListener('click', downloadZip);
