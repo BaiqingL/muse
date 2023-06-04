@@ -11,7 +11,7 @@ const Iterate = () => {
         Provide feedback on the generated prototype until you're satisfied
       </Text>
       <Textarea placeholder="What would you like to change?" />
-      <Button>Submit</Button>
+      <Button colorScheme="purple">Submit</Button>
     </Stack>
   );
 };
