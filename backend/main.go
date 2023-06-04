@@ -2496,6 +2496,7 @@ func main() {
 		}
 	}()
 
+	fmt.Println("Installing base pacakges...")
 	installDeps := exec.Command("npm", "install")
 	installDeps.Dir = tempDir
 	err := installDeps.Run()
@@ -2503,7 +2504,9 @@ func main() {
 		log.Fatal(err)
 		return
 	}
+	fmt.Println("Done installing base packages.")
 
+	fmt.Println("Starting dev server...")
 	devCmd = exec.Command("npm", "run", "dev")
 	devCmd.Dir = tempDir
 	err = devCmd.Start()
@@ -2511,6 +2514,7 @@ func main() {
 		log.Fatal(err)
 		return
 	}
+	fmt.Println("Done starting dev server.")
 
 	// Run the systray module
 	systray.Run(onReady, onExit)
@@ -2582,59 +2586,58 @@ func copyFile(src, dest string) error {
 func coldStartPrompt(framework, useCase string) string {
 	encodedFiles := encodeFilesToPrompt("base")
 	return fmt.Sprintf(`Given an existing codebase, use the %s UI framework to create a %s.
-	First, output the list of all the packages that needs to be installed, such as the frameworks, supporting packages, routers, anything. It should look like:
-	###PACKAGES:
-	package1
-	package2
+First, output the list of all the packages that needs to be installed, such as the frameworks, supporting packages, routers, anything. It should look like:
+###PACKAGES:
+package1
+package2
 
-	Only output top level packages, not subpackages.
+Only output top level packages, not subpackages.
 
-	Then, write the complete code for any files that needs to be changed, which should look like:
+Then, write the complete code for any files that needs to be changed, which should look like:
 
-	###FILENAME:
-	filename
-	###CODE:
-	code
+###FILENAME:
+filename
+###CODE:
+code
 
-	If there is an API key involved, make a centralized .env file with all the keys needed, but don't actually use it in the code. Instead, mock the API data in the final code.
-	However, in the main page render some mock components, such as a navbar, a footer, and a sidebar. Make sure the components are beautiful.
-	Use the UI framework whereever fit. Design the UI for a desktop webapp, and use the UI framework to make the components beautiful.
-	package-lock.json is redacted due to its length. Remember, dependency must be listed out first. ONLY output the packages, and then the code.
-	When writing code, make sure the code actually exist, do not hallucinate code if you aren't sure. Make sure the webapp can run with no errors.
-	In the env file, make it clear what API the key is for. In addition, make the home page is decorated with components!
-	The base packages provided are just the ones that are installed, you don't have to use all of them if you don't need to.
-	If you are using ant, do not import 'antd/dist/antd.css' anywhere. Don't import any css file from antd.
-	Consistently add in console.log debugging statements to help the user to debug your code.
-	Only make the home page and nothing else, and make it beautiful. Don't use react-router-dom for the first iteration.
-	Here is the source code: %s`,
+If there is an API key involved, make a centralized .env file with all the keys needed, but don't actually use it in the code. Instead, mock the API data in the final code.
+However, in the main page render some mock components, such as a navbar, a footer, and a sidebar. Make sure the components are beautiful.
+Use the UI framework whereever fit. Design the UI for a desktop webapp, and use the UI framework to make the components beautiful.
+package-lock.json is redacted due to its length. Remember, dependency must be listed out first. ONLY output the packages, and then the code.
+When writing code, make sure the code actually exist, do not hallucinate code if you aren't sure. Make sure the webapp can run with no errors.
+In the env file, make it clear what API the key is for. In addition, make the home page is decorated with components!
+The base packages provided are just the ones that are installed, you don't have to use all of them if you don't need to.
+If you are using ant, do not import 'antd/dist/antd.css' anywhere. Don't import any css file from antd.
+Consistently add in console.log debugging statements to help the user to debug your code.
+Only make the home page and nothing else, and make it beautiful. Don't use react-router-dom for the first iteration.
+Here is the source code: \n%s`,
 		framework, useCase, encodedFiles)
 }
 
 func iteratePrompt(codebase, iterate, html string) string {
 	return fmt.Sprintf(`Given an existing codebase, you need to make the following change: %s.
-	First, output the list of all the additional packages that needs to be installed if there are any, such as the frameworks, supporting packages, routers, anything. It should look like:
-	###PACKAGES:
-	package1
-	package2
+First, output the list of all the additional packages that needs to be installed if there are any, such as the frameworks, supporting packages, routers, anything. It should look like:
+###PACKAGES:
+package1
+package2
 
-	Only output top level packages, not subpackages.
-	Changing only the minimal amount of code required to make the change, write the complete code for any files that needs to be changed, 
-	which should look like:
+Only output top level packages, not subpackages.
+Changing only the minimal amount of code required to make the change, write the complete code for any files that needs to be changed, 
+which should look like:
 
-	###FILENAME:
-	filename
-	###CODE:
-	code
-	
-	Here is the existing codebase:
-	%s
-	
-	package-lock.json is redacted due to its length. Remember, dependency must be listed out first, even if it is empty.
-	ONLY output the packages, and then the code. If there are no additional packages, just leave it blank but still output the ###PACKAGES and
-	blank line after.
-	Remember, just change the required fields and try not to make any extra changes.
-	The user may have also provided some html the frontend saw as the compiled website, if it exists it will be here:
-	%s`, iterate, codebase, html)
+###FILENAME:
+filename
+###CODE:
+code
+
+Here is the existing codebase:
+%s
+
+package-lock.json is redacted due to its length. Remember, dependency must be listed out first, even if it is empty.
+ONLY output the packages, and then the code. If there are no additional packages, just leave it blank but still output the ###PACKAGES and
+blank line after.
+Remember, just change the required fields and try not to make any extra changes.
+The user may have also provided some html the frontend saw as the compiled website, if it exists it will be here:\n%s`, iterate, codebase, html)
 }
 
 func startServer() {
@@ -2931,39 +2934,59 @@ func zipFiles(source, target string) error {
 }
 
 func encodeFilesToPrompt(filePath string) string {
-	// Retrieve a list of files in the directory
-	files, err := ioutil.ReadDir(filePath)
-	if err != nil {
-		fmt.Println("Error:", err)
-		return ""
-	}
-
 	resultString := ""
 
-	// Iterate through each file in the directory
-	for _, file := range files {
-		// If filename is .gitignore or package-lock.json or .eslintrc.cjs, skip it
-		if file.Name() == ".gitignore" || file.Name() == "package-lock.json" || file.Name() == ".eslintrc.cjs" {
-			continue
+	// Recursive function to traverse files and directories
+	var traverseFiles func(string) error
+	traverseFiles = func(path string) error {
+		// Retrieve a list of files and directories in the path
+		files, err := ioutil.ReadDir(path)
+		if err != nil {
+			return err
 		}
-		// Check if the file is a regular file (not a directory)
-		if file.Mode().IsRegular() {
-			// Read the contents of the file
-			filePath := filepath.Join(filePath, file.Name())
-			contents, err := ioutil.ReadFile(filePath)
-			if err != nil {
-				fmt.Println("Error:", err)
+
+		// Iterate through each file and directory
+		for _, file := range files {
+			// If filename is .gitignore or package-lock.json or .eslintrc.cjs, skip it
+			if file.Name() == ".gitignore" || file.Name() == "package-lock.json" || file.Name() == ".eslintrc.cjs" {
 				continue
 			}
 
-			// Prepare the formatted string
-			code := string(contents)
-			formattedString := fmt.Sprintf("###FILENAME:\n%s\n###CODE:\n%s", filePath, code)
+			// Create the absolute file path
+			filePath := filepath.Join(path, file.Name())
 
-			// Print the formatted string
-			resultString += formattedString + "\n"
+			// Check if the entry is a directory
+			if file.IsDir() {
+				// Recursively traverse the nested directory
+				err := traverseFiles(filePath)
+				if err != nil {
+					fmt.Println("Error:", err)
+				}
+			} else {
+				// Read the contents of the file
+				contents, err := ioutil.ReadFile(filePath)
+				if err != nil {
+					fmt.Println("Error:", err)
+					continue
+				}
+
+				// Prepare the formatted string
+				code := string(contents)
+				formattedString := fmt.Sprintf("###FILENAME:\n%s\n###CODE:\n%s", filePath, code)
+
+				// Print the formatted string
+				resultString += formattedString + "\n"
+			}
 		}
+		return nil
 	}
+
+	// Start traversing files and directories from the provided path
+	err := traverseFiles(filePath)
+	if err != nil {
+		fmt.Println("Error:", err)
+	}
+
 	return resultString
 }
 
