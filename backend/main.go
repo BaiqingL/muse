@@ -2948,7 +2948,7 @@ func encodeFilesToPrompt(filePath string) string {
 		// Iterate through each file and directory
 		for _, file := range files {
 			// If filename is .gitignore or package-lock.json or .eslintrc.cjs, skip it
-			if file.Name() == ".gitignore" || file.Name() == "package-lock.json" || file.Name() == ".eslintrc.cjs" {
+			if file.Name() == ".gitignore" || file.Name() == "package-lock.json" || file.Name() == ".eslintrc.cjs" || file.Name() == "node_modules" {
 				continue
 			}
 
