@@ -1,12 +1,12 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -2475,13 +2475,6 @@ type File struct {
 }
 
 func main() {
-	// First read the API key
-	err := readAPIKey()
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(1)
-	}
-
 	// Print temp folder for debugging
 	fmt.Println("Temporary directory:", tempDir)
 
@@ -2599,35 +2592,130 @@ func coldStartPrompt(framework, useCase string) string {
 		framework, useCase, encodedFiles)
 }
 
-func readAPIKey() error {
-	filePath := "apiKey.env"
-
-	// Read the content of the file
-	content, err := ioutil.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to read %s: %v", filePath, err)
-	}
-
-	// Extract the API key from the content
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "OPENAI_API_KEY=") {
-			OPENAI_API_KEY = strings.TrimPrefix(line, "OPENAI_API_KEY=")
-			return nil
-		}
-	}
-
-	return fmt.Errorf("API key not found in %s", filePath)
-}
-
 func startServer() {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/coldStart", coldStartHandler).Methods("POST")
-	r.HandleFunc("/api/getFile", getFileHandler).Methods("GET") // new route for file download
+	r.HandleFunc("/api/getFile", getFileHandler).Methods("GET")
+	r.HandleFunc("/api/writeFile", writeFileHandler).Methods("POST")
+	r.HandleFunc("/api/export", exportHandler).Methods("GET")
 	err := http.ListenAndServe(":8080", r)
 	if err != nil {
 		fmt.Println("Error starting the server:", err)
 	}
+}
+
+func coldStartHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Received cold start request")
+	var requestData struct {
+		Framework string `json:"framework"`
+		UseCase   string `json:"useCase"`
+		ApiKey    string `json:"apiKey"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&requestData)
+	if err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+	fmt.Println(requestData)
+
+	OPENAI_API_KEY = requestData.ApiKey
+
+	coldStartCodeRequest := coldStartPrompt(requestData.Framework, requestData.UseCase)
+	codeChanges := singleQueryLLM(coldStartCodeRequest)
+	// If response is empty, return an error
+	if codeChanges == "" {
+		http.Error(w, "Error querying OpenAI, did you export the API key to $OPENAI_API_KEY?", http.StatusInternalServerError)
+		return
+	}
+
+	packages := parsePackages(codeChanges)
+
+	code := parseCode(codeChanges)
+	installDependencies(packages)
+
+	for _, file := range code {
+		fmt.Printf("Filename: %s\n", file.Filename)
+		writeFile(file)
+	}
+
+	// Respond with success
+	w.WriteHeader(http.StatusOK)
+}
+
+func getFileHandler(w http.ResponseWriter, r *http.Request) {
+	// Response should contain two fields, boolean exist and string content
+	type Response struct {
+		Exist   bool   `json:"exist"`
+		Content string `json:"content"`
+	}
+
+	// Parse the filename from the query string
+	query := r.URL.Query()
+	filename := query.Get("filename")
+	// Read the file using getFile
+	file := getFile(filename)
+	// If the file is empty, set exist to false
+	if file == "" {
+		json.NewEncoder(w).Encode(Response{Exist: false, Content: ""})
+		return
+	}
+
+	// Otherwise, set exist to true and content to the file content
+	json.NewEncoder(w).Encode(Response{Exist: true, Content: file})
+	return
+}
+
+func writeFileHandler(w http.ResponseWriter, r *http.Request) {
+	// Response should contain one field, boolean success
+	type Response struct {
+		Success bool `json:"success"`
+	}
+
+	// Parse the request body
+	var requestData struct {
+		Filename string `json:"filename"`
+		Content  string `json:"content"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&requestData)
+	if err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	// Write the file using writeFile
+	err = writeFile(File{Filename: requestData.Filename, Code: requestData.Content})
+	if err != nil {
+		http.Error(w, "Error writing file", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with success
+	json.NewEncoder(w).Encode(Response{Success: true})
+	return
+}
+
+func exportHandler(w http.ResponseWriter, r *http.Request) {
+	// Zip the tempdir, and send it as a response
+	zipName := "export.zip"
+	err := zipFiles(tempDir, zipName)
+	if err != nil {
+		http.Error(w, "Error zipping files", http.StatusInternalServerError)
+		return
+	}
+
+	// Read the zip file
+	zipFile, err := ioutil.ReadFile(zipName)
+	if err != nil {
+		http.Error(w, "Error reading zip file", http.StatusInternalServerError)
+		return
+	}
+
+	// Send the zip file as a response
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", "attachment; filename="+zipName)
+	w.Write(zipFile)
 }
 
 func parsePackages(input string) []string {
@@ -2694,62 +2782,65 @@ func installDependencies(packages []string) error {
 	return nil
 }
 
-func getFileHandler(w http.ResponseWriter, r *http.Request) {
-	// Response should contain two fields, boolean exist and string content
-	type Response struct {
-		Exist   bool   `json:"exist"`
-		Content string `json:"content"`
-	}
-
-	// Parse the filename from the query string
-	query := r.URL.Query()
-	filename := query.Get("filename")
-	// Read the file using getFile
-	file := getFile(filename)
-	// If the file is empty, set exist to false
-	if file == "" {
-		json.NewEncoder(w).Encode(Response{Exist: false, Content: ""})
-		return
-	}
-
-	// Otherwise, set exist to true and content to the file content
-	json.NewEncoder(w).Encode(Response{Exist: true, Content: file})
-	return
-}
-
-func coldStartHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Received cold start request")
-	var requestData struct {
-		Framework string `json:"framework"`
-		UseCase   string `json:"useCase"`
-	}
-
-	err := json.NewDecoder(r.Body).Decode(&requestData)
+func zipFiles(source, target string) error {
+	// Create a new zip file
+	zipFile, err := os.Create(target)
 	if err != nil {
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
-		return
+		return err
 	}
+	defer zipFile.Close()
 
-	coldStartCodeRequest := coldStartPrompt(requestData.Framework, requestData.UseCase)
-	codeChanges := singleQueryLLM(coldStartCodeRequest)
-	// If response is empty, return an error
-	if codeChanges == "" {
-		http.Error(w, "Error querying OpenAI, did you export the API key to $OPENAI_API_KEY?", http.StatusInternalServerError)
-		return
-	}
+	// Create a new zip writer
+	zipWriter := zip.NewWriter(zipFile)
+	defer zipWriter.Close()
 
-	packages := parsePackages(codeChanges)
+	// Walk through the source directory and add files to the zip archive
+	err = filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 
-	code := parseCode(codeChanges)
-	installDependencies(packages)
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
 
-	for _, file := range code {
-		fmt.Printf("Filename: %s\n", file.Filename)
-		writeFile(file)
-	}
+		// Open the file
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
 
-	// Respond with success
-	w.WriteHeader(http.StatusOK)
+		// Create a new file header
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+
+		// Set the name for the file in the zip archive
+		relPath, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		header.Name = relPath
+
+		// Add the file to the zip archive
+		writer, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		// Write the file's contents to the zip archive
+		_, err = io.Copy(writer, file)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	return err
 }
 
 func encodeFilesToPrompt(filePath string) string {
