@@ -8,6 +8,7 @@ Body:
 {
   "framework": "...",
   "useCase": "...",
+  "apiKey": "...",
 }
 
 ```
