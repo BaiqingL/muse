@@ -61,7 +61,7 @@ const Popup = () => {
   const [prompt, setPrompt] = useState<string>();
   const [framework, setFramework] = useState<(typeof UI_FRAMEWORKS)[0]>();
   const [loading, setLoading] = useState<boolean>(false);
-  const [envContents, setEnvContents] = useState<string>('');
+  const [envContents, setEnvContents] = useState<string | null>(null);
 
   const handleCreate = async () => {
     if (!prompt || !framework) {
@@ -77,11 +77,11 @@ const Popup = () => {
         return;
       }
 
-      // const resColdStart = await api.post('/api/coldStart', {
-      //   framework: framework.id,
-      //   useCase: prompt,
-      //   apiKey: apiKey.apiKey,
-      // });
+      const resColdStart = await api.post('/api/coldStart', {
+        framework: framework.id,
+        useCase: prompt,
+        apiKey: apiKey.apiKey,
+      });
 
       const resCheckEnv = await api.get('/api/getFile', {
         params: {
@@ -89,23 +89,40 @@ const Popup = () => {
         },
       });
 
-      console.log(resCheckEnv);
-
       if (resCheckEnv.data.exist) {
         const contents = resCheckEnv.data.content;
-        console.log(contents);
-
         setEnvContents(contents);
+      } else {
+        await nextStep();
       }
-
-      // await chrome.tabs.create({
-      //   url: APP_URL,
-      // });
     } catch (err) {
       console.log(err);
     }
 
     setLoading(false);
+  };
+
+  const nextStep = async () => {
+    await chrome.tabs.create({
+      url: APP_URL,
+    });
+  };
+
+  const onEnvChange = async () => {
+    if (!envContents) {
+      return;
+    }
+
+    try {
+      await api.post('/api/writeFile', {
+        filename: '.env',
+        content: envContents,
+      });
+
+      await nextStep();
+    } catch (err) {
+      console.log(err);
+    }
   };
 
   return (
@@ -144,10 +161,16 @@ const Popup = () => {
 
       {loading && <Progress size="xs" isIndeterminate />}
 
-      {envContents && (
+      {envContents !== null && (
         <Stack>
-          <Heading size="md">.env</Heading>
-          <Text>{envContents}</Text>
+          <Text>Enter your environment variables here</Text>
+          <Textarea
+            value={envContents}
+            onChange={(e) => setEnvContents(e.target.value)}
+          />
+          <Button onClick={onEnvChange} colorScheme="purple">
+            Write
+          </Button>
         </Stack>
       )}
     </Stack>

@@ -24,6 +24,7 @@
 
 .muse-popup {
   display: none;
+  color: black;
 
   position: absolute;
   top: 0;
@@ -87,4 +88,22 @@
 
 .muse-popup > p {
   margin: 0;
+}
+
+.muse-toggle {
+  position: absolute;
+  background: white;
+
+  top: 0;
+  left: 0;
+
+  margin-left: 8px;
+  margin-top: 8px;
+
+  background: var(--extension-primary);
+  color: var(--extension-white);
+  border-radius: 8px;
+
+  font-family: 'Manrope', monospace;
+  font-size: 16px;
 }
