@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -21,11 +22,7 @@ import (
 var OPENAI_API_KEY string
 var tempDir, _ = ioutil.TempDir("", "example")
 var encodedFiles = encodeFilesToPrompt("base")
-var nodeServerAction = make(chan int)
-var cmd *exec.Cmd
-var START_SERVER = 1
-var STOP_SERVER = 2
-var RESTART_SERVER = 3
+var devCmd *exec.Cmd
 var Data []byte = []byte{
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
 	0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00,
@@ -2500,6 +2497,22 @@ func main() {
 		}
 	}()
 
+	installDeps := exec.Command("npm", "install")
+	installDeps.Dir = tempDir
+	err := installDeps.Run()
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+
+	devCmd = exec.Command("npm", "run", "dev")
+	devCmd.Dir = tempDir
+	err = devCmd.Start()
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+
 	// Run the systray module
 	systray.Run(onReady, onExit)
 }
@@ -2631,74 +2644,10 @@ func startServer() {
 	r.HandleFunc("/api/getFile", getFileHandler).Methods("GET")
 	r.HandleFunc("/api/writeFile", writeFileHandler).Methods("POST")
 	r.HandleFunc("/api/export", exportHandler).Methods("GET")
-	r.HandleFunc("/api/startNpm", startNpmHandler).Methods("GET")
-	r.HandleFunc("/api/stopNpm", stopNpmHandler).Methods("GET")
-	r.HandleFunc("/api/restartNpm", restartNpmHandler).Methods("GET")
 	err := http.ListenAndServe(":8080", r)
 	if err != nil {
 		fmt.Println("Error starting the server:", err)
 	}
-}
-
-func startNpmHandler(w http.ResponseWriter, r *http.Request) {
-	// Response should contain one field, boolean success
-	type Response struct {
-		Success bool `json:"success"`
-	}
-
-	// Start the npm server
-	err := startDevServer()
-	if err != nil {
-		http.Error(w, "Error starting npm server", http.StatusInternalServerError)
-		return
-	}
-
-	// Respond with success
-	json.NewEncoder(w).Encode(Response{Success: true})
-	return
-}
-
-func stopNpmHandler(w http.ResponseWriter, r *http.Request) {
-	// Response should contain one field, boolean success
-	type Response struct {
-		Success bool `json:"success"`
-	}
-
-	// Stop the npm server
-	err := stopDevServer()
-	if err != nil {
-		http.Error(w, "Error stopping npm server", http.StatusInternalServerError)
-		return
-	}
-
-	// Respond with success
-	json.NewEncoder(w).Encode(Response{Success: true})
-	return
-}
-
-func restartNpmHandler(w http.ResponseWriter, r *http.Request) {
-	// Response should contain one field, boolean success
-	type Response struct {
-		Success bool `json:"success"`
-	}
-
-	// Stop the npm server
-	err := stopDevServer()
-	if err != nil {
-		http.Error(w, "Error stopping npm server", http.StatusInternalServerError)
-		return
-	}
-
-	// Start the npm server
-	err = startDevServer()
-	if err != nil {
-		http.Error(w, "Error starting npm server", http.StatusInternalServerError)
-		return
-	}
-
-	// Respond with success
-	json.NewEncoder(w).Encode(Response{Success: true})
-	return
 }
 
 func coldStartHandler(w http.ResponseWriter, r *http.Request) {
@@ -3221,36 +3170,6 @@ func multiQueryLLM(prompts []string) []string {
 	return results
 }
 
-func startDevServer() error {
-
-	installDeps := exec.Command("npm", "install")
-	installDeps.Dir = tempDir
-	err := installDeps.Run()
-	if err != nil {
-		fmt.Println("Error installing dependencies:", err)
-		return err
-	}
-	cmd = exec.Command("npm", "run", "dev", "--", "--port", "8808")
-	cmd.Dir = tempDir
-	err = cmd.Start()
-	if err != nil {
-		fmt.Println("Error starting npm server:", err)
-		return err
-	}
-	fmt.Println("Started npm server")
-	return nil
-}
-
-func stopDevServer() error {
-	err := cmd.Process.Kill()
-	if err != nil {
-		fmt.Println("Error stopping npm server:", err)
-		return err
-	}
-	fmt.Println("Stopped npm server")
-	return nil
-}
-
 func onReady() {
 	systray.SetTemplateIcon(Data, Data)
 	mQuitOrig := systray.AddMenuItem("Quit", "Quit the whole app")
@@ -3263,11 +3182,16 @@ func onReady() {
 }
 
 func onExit() {
+	if devCmd != nil && devCmd.Process != nil {
+		fmt.Println("Killing dev server")
+		devCmd.Process.Kill()
+	} else {
+		fmt.Println("Dev server already dead")
+	}
 	err := os.RemoveAll(tempDir)
 	if err != nil {
 		fmt.Println("Error removing temporary directory:", err)
 		os.Exit(1)
 	}
-	stopDevServer()
 	fmt.Println("Removed temporary directory")
 }
