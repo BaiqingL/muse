@@ -2706,6 +2706,7 @@ func iterateHandler(w http.ResponseWriter, r *http.Request) {
 	currentCodebase := encodeFilesToPrompt(tempDir)
 	fmt.Println("Current codebase:\n", currentCodebase)
 	iterateCodeRequest := iteratePrompt(currentCodebase, requestData.Prompt, requestData.Html)
+	fmt.Println("Iterate prompt:\n", iterateCodeRequest)
 
 	codeChanges := singleQueryLLM(iterateCodeRequest)
 	// If response is empty, return an error
