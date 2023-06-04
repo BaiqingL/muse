@@ -20,7 +20,7 @@ import (
 )
 
 var OPENAI_API_KEY string
-var tempDir, _ = ioutil.TempDir("", "example")
+var tempDir, _ = ioutil.TempDir("", "muse")
 var devCmd *exec.Cmd
 var Data []byte = []byte{
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
@@ -2477,8 +2477,19 @@ type File struct {
 
 func main() {
 	// Print temp folder for debugging
-	fmt.Println("Temporary directory:", tempDir)
+	logFile, err := os.Create("log.txt")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer logFile.Close()
+	log.SetOutput(logFile)
 
+	log.Println("Temporary directory:", tempDir)
+
+	// Print the current working directory for debugging
+	cwd, _ := os.Getwd()
+	// Log the cwd
+	log.Println("Current working directory:", cwd)
 	// Copy the base files to the temp folder
 	copyFiles("base", tempDir)
 
@@ -2496,17 +2507,17 @@ func main() {
 		}
 	}()
 
-	fmt.Println("Installing base pacakges...")
+	log.Println("Installing base pacakges...")
 	installDeps := exec.Command("npm", "install")
 	installDeps.Dir = tempDir
-	err := installDeps.Run()
+	err = installDeps.Run()
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
-	fmt.Println("Done installing base packages.")
+	log.Println("Done installing base packages.")
 
-	fmt.Println("Starting dev server...")
+	log.Println("Starting dev server...")
 	devCmd = exec.Command("npm", "run", "dev")
 	devCmd.Dir = tempDir
 	err = devCmd.Start()
@@ -2514,7 +2525,7 @@ func main() {
 		log.Fatal(err)
 		return
 	}
-	fmt.Println("Done starting dev server.")
+	log.Println("Done starting dev server.")
 
 	// Run the systray module
 	systray.Run(onReady, onExit)
@@ -2649,12 +2660,12 @@ func startServer() {
 	r.HandleFunc("/api/export", exportHandler).Methods("GET")
 	err := http.ListenAndServe(":8080", r)
 	if err != nil {
-		fmt.Println("Error starting the server:", err)
+		log.Println("Error starting the server:", err)
 	}
 }
 
 func coldStartHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Received cold start request")
+	log.Println("Received cold start request")
 	var requestData struct {
 		Framework string `json:"framework"`
 		UseCase   string `json:"useCase"`
@@ -2666,12 +2677,12 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
-	fmt.Println(requestData)
+	log.Println(requestData)
 
 	OPENAI_API_KEY = requestData.ApiKey
 
 	coldStartCodeRequest := coldStartPrompt(requestData.Framework, requestData.UseCase)
-	fmt.Println("Cold start prompt:\n", coldStartCodeRequest)
+	log.Println("Cold start prompt:\n", coldStartCodeRequest)
 	codeChanges := singleQueryLLM(coldStartCodeRequest)
 	// If response is empty, return an error
 	if codeChanges == "" {
@@ -2685,7 +2696,7 @@ func coldStartHandler(w http.ResponseWriter, r *http.Request) {
 	installDependencies(packages)
 
 	for _, file := range code {
-		fmt.Printf("Filename: %s\n", file.Filename)
+		log.Printf("Filename: %s\n", file.Filename)
 		writeFile(file, false)
 	}
 
@@ -2707,9 +2718,9 @@ func iterateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	currentCodebase := encodeFilesToPrompt(tempDir)
-	fmt.Println("Current codebase:\n", currentCodebase)
+	log.Println("Current codebase:\n", currentCodebase)
 	iterateCodeRequest := iteratePrompt(currentCodebase, requestData.Prompt, requestData.Html)
-	fmt.Println("Iterate prompt:\n", iterateCodeRequest)
+	log.Println("Iterate prompt:\n", iterateCodeRequest)
 
 	codeChanges := singleQueryLLM(iterateCodeRequest)
 	// If response is empty, return an error
@@ -2724,8 +2735,8 @@ func iterateHandler(w http.ResponseWriter, r *http.Request) {
 	installDependencies(packages)
 
 	for _, file := range code {
-		fmt.Printf("Filename: %s\n", file.Filename)
-		fmt.Printf("Code: %s\n", file.Code)
+		log.Printf("Filename: %s\n", file.Filename)
+		log.Printf("Code: %s\n", file.Code)
 		writeFile(file, true)
 	}
 
@@ -2860,13 +2871,13 @@ func installDependencies(packages []string) error {
 		cmd.Stderr = os.Stderr
 		cmd.Dir = tempDir
 
-		fmt.Printf("Installing package: %s\n", pkg)
+		log.Printf("Installing package: %s\n", pkg)
 		err := cmd.Run()
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("Package %s installed successfully.\n", pkg)
+		log.Printf("Package %s installed successfully.\n", pkg)
 	}
 
 	return nil
@@ -2960,13 +2971,13 @@ func encodeFilesToPrompt(filePath string) string {
 				// Recursively traverse the nested directory
 				err := traverseFiles(filePath)
 				if err != nil {
-					fmt.Println("Error:", err)
+					log.Println("Error:", err)
 				}
 			} else {
 				// Read the contents of the file
 				contents, err := ioutil.ReadFile(filePath)
 				if err != nil {
-					fmt.Println("Error:", err)
+					log.Println("Error:", err)
 					continue
 				}
 
@@ -2984,7 +2995,7 @@ func encodeFilesToPrompt(filePath string) string {
 	// Start traversing files and directories from the provided path
 	err := traverseFiles(filePath)
 	if err != nil {
-		fmt.Println("Error:", err)
+		log.Println("Error:", err)
 	}
 
 	return resultString
@@ -3012,13 +3023,13 @@ func writeFile(inputCode File, iterate bool) error {
 	// Check if the directory exists
 	if _, err := os.Stat(fullDir); os.IsNotExist(err) {
 		// Create the directory
-		fmt.Println("Creating directory:", fullDir)
+		log.Println("Creating directory:", fullDir)
 		err = os.MkdirAll(fullDir, 0755)
 		if err != nil {
 			return fmt.Errorf("error creating directory %s: %v", fullDir, err)
 		}
 	} else {
-		fmt.Println("Directory already exists:", fullDir)
+		log.Println("Directory already exists:", fullDir)
 	}
 
 	// Write the file
@@ -3028,7 +3039,7 @@ func writeFile(inputCode File, iterate bool) error {
 	} else {
 		fullPath = inputCode.Filename
 	}
-	fmt.Println("Writing file:", fullPath)
+	log.Println("Writing file:", fullPath)
 	err := ioutil.WriteFile(fullPath, []byte(inputCode.Code), 0644)
 	if err != nil {
 		return fmt.Errorf("error writing file %s: %v", fullPath, err)
@@ -3050,7 +3061,7 @@ func singleQueryLLM(prompt string) string {
 	}
 
 	requestData := Request{
-		Model: "gpt-4",
+		Model: "gpt-4-32k",
 		Messages: []Message{
 			{
 				Role:    "user",
@@ -3062,14 +3073,14 @@ func singleQueryLLM(prompt string) string {
 
 	requestBody, err := json.Marshal(requestData)
 	if err != nil {
-		fmt.Println("Error encoding request body:", err)
+		log.Println("Error encoding request body:", err)
 		return ""
 	}
 
 	client := &http.Client{}
 	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(requestBody))
 	if err != nil {
-		fmt.Println("Error creating request:", err)
+		log.Println("Error creating request:", err)
 		return ""
 	}
 
@@ -3078,18 +3089,18 @@ func singleQueryLLM(prompt string) string {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Println("Error sending request:", err)
+		log.Println("Error sending request:", err)
 		return ""
 	}
 	defer resp.Body.Close()
 
 	responseBody, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Println("Error reading response body:", err)
+		log.Println("Error reading response body:", err)
 		return ""
 	}
 
-	fmt.Println("ChatGPT response:", string(responseBody))
+	log.Println("ChatGPT response:", string(responseBody))
 
 	var response struct {
 		Choices []struct {
@@ -3101,7 +3112,7 @@ func singleQueryLLM(prompt string) string {
 
 	err = json.Unmarshal(responseBody, &response)
 	if err != nil {
-		fmt.Println("Error parsing ChatGPT response:", err)
+		log.Println("Error parsing ChatGPT response:", err)
 		return ""
 	}
 
@@ -3144,14 +3155,14 @@ func multiQueryLLM(prompts []string) []string {
 
 	requestBody, err := json.Marshal(requestData)
 	if err != nil {
-		fmt.Println("Error encoding request body:", err)
+		log.Println("Error encoding request body:", err)
 		return nil
 	}
 
 	client := &http.Client{}
 	req, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(requestBody))
 	if err != nil {
-		fmt.Println("Error creating request:", err)
+		log.Println("Error creating request:", err)
 		return nil
 	}
 
@@ -3160,14 +3171,14 @@ func multiQueryLLM(prompts []string) []string {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Println("Error sending request:", err)
+		log.Println("Error sending request:", err)
 		return nil
 	}
 	defer resp.Body.Close()
 
 	responseBody, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Println("Error reading response body:", err)
+		log.Println("Error reading response body:", err)
 		return nil
 	}
 
@@ -3181,12 +3192,12 @@ func multiQueryLLM(prompts []string) []string {
 
 	err = json.Unmarshal(responseBody, &response)
 	if err != nil {
-		fmt.Println("Error parsing ChatGPT response:", err)
+		log.Println("Error parsing ChatGPT response:", err)
 		return nil
 	}
 
 	// Print response choices amount
-	fmt.Println("Response body:", string(responseBody))
+	log.Println("Response body:", string(responseBody))
 
 	results := make([]string, len(response.Choices))
 	for i, choice := range response.Choices {
@@ -3201,23 +3212,23 @@ func onReady() {
 	mQuitOrig := systray.AddMenuItem("Quit", "Quit the whole app")
 	go func() {
 		<-mQuitOrig.ClickedCh
-		fmt.Println("Requesting quit")
+		log.Println("Requesting quit")
 		systray.Quit()
-		fmt.Println("Finished quitting")
+		log.Println("Finished quitting")
 	}()
 }
 
 func onExit() {
 	if devCmd != nil && devCmd.Process != nil {
-		fmt.Println("Killing dev server")
+		log.Println("Killing dev server")
 		devCmd.Process.Kill()
 	} else {
-		fmt.Println("Dev server already dead")
+		log.Println("Dev server already dead")
 	}
 	err := os.RemoveAll(tempDir)
 	if err != nil {
-		fmt.Println("Error removing temporary directory:", err)
+		log.Println("Error removing temporary directory:", err)
 		os.Exit(1)
 	}
-	fmt.Println("Removed temporary directory")
+	log.Println("Removed temporary directory")
 }
