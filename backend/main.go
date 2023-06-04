@@ -3061,7 +3061,7 @@ func singleQueryLLM(prompt string) string {
 	}
 
 	requestData := Request{
-		Model: "gpt-4-32k",
+		Model: "gpt-4",
 		Messages: []Message{
 			{
 				Role:    "user",
