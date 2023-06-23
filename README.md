@@ -1,6 +1,16 @@
-# Cross functional calls
+<p align="center">
+  <img src="resources/gradient.svg" alt="Logo" width="64">
+</p>
 
-## api/coldStart
+# Muse
+
+[Demo Video](https://www.youtube.com/watch?v=vA2KrzqN6Hw)
+
+Muse is a Chrome extension that automatically generates Typescript front-end code given a prompt & UI framework. It can also automatically install any dependencies if needed. From there, users can select specific elements & prompt additional iterations via additional prompts.
+
+## API Spec
+
+### api/coldStart
 ```
 POST /api/coldStart
 
@@ -13,7 +23,7 @@ Body:
 
 ```
 
-## api/getFile
+### api/getFile
 ```
 GET /api/getFile
 
@@ -30,7 +40,7 @@ Response:
 
 ```
 
-## api/writeFile
+### api/writeFile
 ```
 POST /api/writeFile
 
@@ -47,7 +57,7 @@ Response:
 
 ```
 
-## api/iterate
+### api/iterate
 ```
 POST /api/iterate
 
@@ -58,7 +68,7 @@ Body:
 }
 ```
 
-## api/export
+### api/export
 ```
 GET /api/export
 
